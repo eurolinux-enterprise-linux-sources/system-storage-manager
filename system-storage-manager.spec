@@ -1,6 +1,6 @@
 Name:           system-storage-manager
 Version:        0.4
-Release:        8%{?dist}
+Release:        7%{?dist}
 Summary:        A single tool to manage your storage
 
 Group:          System Environment/Base
@@ -30,11 +30,6 @@ Patch18: ssm-0.4-ssm-Use-xfs_reparir-to-check-xfs-file-system-consist.patch
 Patch19: ssm-0.4-ssm-big-update-no-2.patch
 Patch20: ssm-0.4-ssm-Close-file-descriptors-on-popen.patch
 Patch21: ssm-0.4-crypt-Remove-resize-support.patch
-Patch22: ssm-0.4-misc-Return-stderr-output-in-run-as-well.patch
-Patch23: ssm-0.4-lvm-Move-lvm-specific-error-handling-to-lvm-backend.patch
-Patch24: ssm-0.4-tests-Test-ssm-list-with-exported-volume-groups.patch
-Patch25: ssm-0.4-tests-fix-bashtests-008-btrfs-remove.sh.patch
-Patch26: ssm-0.4-tests-Do-not-attpemt-to-mknod-loop-devices-if-not-ne.patch
 
 
 BuildArch:      noarch
@@ -114,16 +109,6 @@ technologies via a single unified interface.
 %patch20 -p1
 # crypt: Remove resize support
 %patch21 -p1
-# misc: Return stderr output in run() as well
-%patch22 -p1
-# lvm: Move lvm specific error handling to lvm backend
-%patch23 -p1
-# tests: Test ssm list with exported volume groups
-%patch24 -p1
-# tests: fix bashtests/008-btrfs-remove.sh
-%patch25 -p1
-# tests: Do not attpemt to mknod loop devices if not necessary
-%patch26 -p1
 
 %build
 # nothing to build
@@ -147,10 +132,6 @@ make test
 
 
 %changelog
-* Fri Jun 22 2018 Lukas Czerner <lczerner@redhat.com> 0.4-8
-- Fix error on ssm list when vg is exported (#1321236)
-- Fix btrfs test and tests in general
-
 * Thu Jul 21 2016 Lukas Czerner <lczerner@redhat.com> 0.4-7
 - Fix leaked descriptor on lvm invocation
 - Disallow resizing encrypted volumes
