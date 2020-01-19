@@ -1,0 +1,84 @@
+From 6b539f4282f6530a1fcc08ff7f78e39956f3e87a Mon Sep 17 00:00:00 2001
+From: Jan Tulak <jtulak@redhat.com>
+Date: Thu, 29 Nov 2018 10:59:28 +0100
+Subject: [PATCH 03/22] ssm: Fix a case where xfs growing could fail
+
+In certain configurations, ssm resize for xfs volumes could fail. This
+fixes the issue and adds a test for extX and xfs.
+
+RHBZ 1654583
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+Reviewed-by: Lukas Czerner <lczerner@redhat.com>
+---
+ ssmlib/main.py                    |  7 ++++---
+ tests/bashtests/004-lvm-resize.sh | 17 +++++++++++++++++
+ 2 files changed, 21 insertions(+), 3 deletions(-)
+
+diff --git a/ssmlib/main.py b/ssmlib/main.py
+index 5619666..43bdbf3 100644
+--- a/ssmlib/main.py
++++ b/ssmlib/main.py
+@@ -352,20 +352,21 @@ class FsInfo(object):
+         return misc.run(command, stdout=True, can_fail=True)[0]
+ 
+     def xfs_resize(self, new_size=None):
+-        new_size = int(new_size)
+-        command = ['xfs_growfs', self.device]
++        command = ['xfs_growfs']
+         if not misc.check_binary(command[0]):
+             PR.warn("\'{0}\' tool does not exist. ".format(command[0]) +
+                     "File system will not be resized")
+             return 1
+         if new_size:
+-            command.insert(1, ['-D', new_size + 'K'])
++            new_size = int(new_size)
++            command.append(['-D', new_size + 'K'])
+         if not self.mounted:
+             raise PR.error("Xfs file system on {0}".format(self.device) +
+                            " has to be mounted to perform an resize")
+         elif new_size and new_size < self.data['fs_size']:
+             raise PR.error("Xfs file system can not shrink")
+         else:
++            command.append(self.mounted)
+             misc.run(command, stdout=True)
+ 
+ 
+diff --git a/tests/bashtests/004-lvm-resize.sh b/tests/bashtests/004-lvm-resize.sh
+index e313e19..ed6c4cf 100755
+--- a/tests/bashtests/004-lvm-resize.sh
++++ b/tests/bashtests/004-lvm-resize.sh
+@@ -25,6 +25,7 @@ DEV_SIZE=100
+ # The real size of the device which lvm will use is smaller
+ TEST_MAX_SIZE=$(($DEV_COUNT*($DEV_SIZE-4)))
+ aux prepare_devs $DEV_COUNT $DEV_SIZE
++aux prepare_mnts 10
+ TEST_DEVS=$(cat DEVICES)
+ export SSM_DEFAULT_BACKEND='lvm'
+ export SSM_LVM_DEFAULT_POOL=$vg1
+@@ -232,6 +233,22 @@ for fs in $TEST_FS; do
+ 	ssm -f check $DEFAULT_VOLUME
+ 	ssm -f remove $SSM_LVM_DEFAULT_POOL
+ 	ssm -f remove $pool1
++
++	# try to  add a single device together with a resize
++	case "$fs" in
++	ext2|ext3|ext4) # may not be mounted
++		ssm create --fs $fs $dev1
++		ssm resize --size +100%FREE $DEFAULT_VOLUME $dev2
++		ssm -f remove $SSM_LVM_DEFAULT_POOL
++		;;
++	xfs) # has to be mounted
++		ssm create --fs $fs $dev1 $mnt1
++		ssm resize --size +100%FREE $DEFAULT_VOLUME $dev2
++		umount_all
++		ssm -f remove $SSM_LVM_DEFAULT_POOL
++		;;
++	*) echo "Skipping $fs" ;;
++	esac
+ done
+ # There should not be anything to remove
+ not ssm  -f remove --all
+-- 
+2.21.0
+

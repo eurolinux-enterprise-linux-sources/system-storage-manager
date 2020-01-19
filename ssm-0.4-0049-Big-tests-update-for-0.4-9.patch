@@ -1,0 +1,552 @@
+From 46904e0bb94ac45023fd9b73dbeabf274380e460 Mon Sep 17 00:00:00 2001
+From: Jan Tulak <jtulak@redhat.com>
+Date: Tue, 11 Oct 2016 17:16:27 +0200
+Subject: [PATCH] Big tests update for 0.4-9
+
+This is a cumulative patch for tests. We merged the individual patches
+to one to keep the list of patches in spec file as clean as possible and
+not dirty it with patches that won't affect the resulting package.
+
+This is a combination of 14 commits.
+
+Rename LVM_TEST_DIR to SSM_TEST_DIR
+
+The environment variable LVM_TEST_DIR is not specific for LVM, but is
+used by every bash test. Thus rename it to SSM_TEST_DIR to avoid
+confusion.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+
+New mock functions for unittests
+
+Add new mock functions to unittests, that were omitted before and where
+the tests could get real, physical data instead of the mock ones.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+
+tests: Add mock create_directory function
+
+In order to avoid actually creating (or attempting to create) a
+directory during unittests introduce mock_create_directory function.
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+
+Enable all unittests
+
+Only some unittests were active - probably a local change that should
+not be pushed into the repo.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+
+tests: Fix floating point numbers lvm unittests
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+
+tests: fix permission of 013
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+
+tests: add failed-at-line detection to bash tests
+
+This makes it easier to find what exactly happened if a bash test fails,
+because it shows the exact line and command that failed. Requires Bash
+4.1+.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+
+tests: add -F flag to mkfs commands in tests
+
+When we run tests directly (like "./001-lvm-add.sh"), mkfs.extX asks for
+confirmation. Add a force flag to enforce non-interactive behaviour.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+
+tests: ignore errors when -e is set
+
+The error reporting trap gets run even when -e (fail on error) is not
+set in Bash. But this is not the behaviour we want, so this patch makes
+the function just do nothing unless -e is set.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+
+tests: add argparse to test.py
+
+Allow us to choose if we want to run only bash tests or unit tests.
+Subsequent patches adds a support for running only a specific test
+using argparse as well.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+
+tests: split quick_test to two functions
+
+Split quick_test to doc_tests and unit_tests
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+
+tests: allow to run selected bash tests
+
+Allow the user to limit which bash tests should be run.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+
+test: allow to run selected unit tests
+
+Allow the user to select which specific unit tests will be run.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+
+tests: better name matching for test.py
+
+Change the name matching to be more useful - for bash tests, it now
+takes also the number (no need to type a whole name). For unittests, it
+is no longer necessary to spell out the whole name too. Instead of
+'tests.unittests.test_btrfs.BtrfsFunctionCheck.test_btrfs_resize'
+it is enough to just type 'BtrfsFunctionCheck.test_btrfs_resize'.
+
+The --help description was adequately expanded.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+Reviewed-by: Lukas Czerner <lczerner@redhat.com>
+---
+ test.py                           | 111 ++++++++++++++++++++++++++----
+ tests/bashtests/001-lvm-add.sh    |   8 +--
+ tests/bashtests/002-lvm-create.sh |   6 +-
+ tests/bashtests/004-lvm-resize.sh |   6 +-
+ tests/bashtests/013-lvm-check.sh  |   0
+ tests/bashtests/lib/test.sh       |  29 +++++++-
+ tests/unittests/common.py         |  27 ++++++++
+ tests/unittests/test_lvm.py       |  12 ++--
+ 8 files changed, 168 insertions(+), 31 deletions(-)
+ mode change 100644 => 100755 tests/bashtests/013-lvm-check.sh
+
+diff --git a/test.py b/test.py
+index 3702fc5..b74f8a5 100644
+--- a/test.py
++++ b/test.py
+@@ -24,6 +24,7 @@ import sys
+ import time
+ import doctest
+ import unittest
++import argparse
+ 
+ os.environ['SSM_NONINTERACTIVE'] = "1"
+ 
+@@ -31,9 +32,10 @@ from ssmlib import main
+ from ssmlib import misc
+ from ssmlib.backends import lvm, crypt, btrfs
+ 
++import tests.unittests as tests_module
+ from tests.unittests import *
+ 
+-def run_bash_tests():
++def run_bash_tests(names):
+     cur = os.getcwd()
+     os.chdir('./tests/bashtests')
+     command = ['ls', '-m']
+@@ -50,6 +52,8 @@ def run_bash_tests():
+         script = script.strip()
+         if not re.match("^\d\d\d-.*\.sh$", script):
+             continue
++        if names and script not in names and script[:3] not in names:
++            continue
+         count += 1
+         sys.stdout.write("{0:<29}".format(script) + " ")
+         sys.stdout.flush()
+@@ -71,6 +75,11 @@ def run_bash_tests():
+         else:
+             print("\033[92m[PASSED]\033[0m")
+             passed.append(script)
++
++    if count == 0 and names:
++        print("[+] No bash test matches the name(s)")
++        return 0
++
+     t1 = time.time() - t0
+     print("Ran {0} tests in {1} seconds.".format(count, round(t1, 2)))
+     print("{0} tests PASSED: {1}".format(len(passed), ", ".join(passed)))
+@@ -87,7 +96,7 @@ def run_bash_tests():
+     return ret
+ 
+ 
+-def quick_test():
++def doc_tests():
+     print("[+] Running doctests")
+     doctest_flags = doctest.IGNORE_EXCEPTION_DETAIL | doctest.ELLIPSIS | \
+                     doctest.REPORT_ONLY_FIRST_FAILURE
+@@ -101,22 +110,98 @@ def quick_test():
+             raise_on_error=False, optionflags=doctest_flags)
+     result = doctest.testmod(misc, exclude_empty=True, report=True,
+             raise_on_error=False, optionflags=doctest_flags)
++
++def unit_tests(names):
+     print("[+] Running unittests")
++    tests = unittest.TestSuite()
+     test_loader = unittest.TestLoader()
+-    tests_lvm = test_loader.loadTestsFromModule(test_lvm)
+-    tests_btrfs = test_loader.loadTestsFromModule(test_btrfs)
+-    tests_ssm = test_loader.loadTestsFromModule(test_ssm)
+-    tests = unittest.TestSuite([tests_lvm, tests_btrfs, tests_ssm])
+-    tests = unittest.TestSuite([tests_ssm])
++
++    if names:
++        for name in names:
++            if name[-3:] == ".sh" or name.isdigit():
++                # bash test, skip here
++                continue
++
++            # first try a full name
++            try:
++                tests = unittest.TestSuite([tests, test_loader.loadTestsFromName(
++                    name)])
++                continue
++            except (ImportError, AttributeError):
++                pass
++
++            # then a name with the prefix omitted
++            try:
++                tests = unittest.TestSuite([tests, test_loader.loadTestsFromName(
++                    "tests.unittests." + name)])
++                continue
++            except (ImportError, AttributeError):
++                pass
++
++            # ok, maybe even the file name was omitted, so we are down to class.method name
++            tests_classes = [cname for cname in dir(tests_module) if cname[:5] == 'test_']
++            found = False
++            for c in tests_classes:
++                try:
++                    tests = unittest.TestSuite([tests, test_loader.loadTestsFromName(
++                        "tests.unittests.{}.{}".format(c,name))])
++                    found = True
++                    break
++                except (ImportError, AttributeError):
++                    pass
++            if found:
++                continue
++
++            # still nothing found... it might be a method only, but TODO that
++            print("Warning: Test {} was not found.".format(name))
++
++        if tests.countTestCases() == 0:
++            print("[+] No unittest matches the name(s)")
++            return
++    else:
++        tests_lvm = test_loader.loadTestsFromModule(test_lvm)
++        tests_btrfs = test_loader.loadTestsFromModule(test_btrfs)
++        tests_ssm = test_loader.loadTestsFromModule(test_ssm)
++        tests = unittest.TestSuite([tests_lvm, tests_btrfs, tests_ssm])
++
+     test_runner = unittest.TextTestRunner(verbosity=2)
+     test_runner.run(tests)
+ 
+ 
+ if __name__ == '__main__':
+-    quick_test()
+-    if not os.geteuid() == 0:
+-        print("\nRoot privileges required to run more tests!\n")
+-        sys.exit(0)
+-    print("[+] Running bash tests")
+-    result = run_bash_tests()
++    result = 0
++    parser = argparse.ArgumentParser(description="Run the test suite for SSM. "
++            "If both --bash and --unit arguments are ommited, run both groups. "
++            "If a test name is specified, only matching tests are run.")
++    parser.add_argument('-b', '--bash', dest='bash', action='store_true',
++                    help='run only bash tests')
++    parser.add_argument('-u', '--unit', dest='unit', action='store_true',
++                    help='run only unit tests')
++    parser.add_argument('tests', metavar='TEST', type=str, nargs='*',
++                    help='Specific tests to be run. For bash tests, '
++                         'that means either a full name (001-foo.sh), '
++                         'or just the number. '
++                         'For unit tests, it means something like '
++                         'BtrfsFunctionCheck.test_btrfs_resize for a specific test, '
++                         'BtrfsFunctionCheck for specific test suite '
++                         'and test_btrfs for a whole file of tests.')
++
++    args = parser.parse_args()
++    run_all = not args.unit and not args.bash
++    if args.unit and args.bash:
++        print("Do not use both --bash and --unit at once."
++            "All tests are run when these options are omitted.")
++        sys.exit(1)
++
++    if args.unit or run_all:
++        if not args.tests:
++            doc_tests()
++        unit_tests(args.tests)
++
++    if args.bash or run_all:
++        if not os.geteuid() == 0:
++            print("\nRoot privileges required to run more tests!\n")
++            sys.exit(0)
++        print("[+] Running bash tests")
++        result = run_bash_tests(args.tests)
+     sys.exit(result)
+diff --git a/tests/bashtests/001-lvm-add.sh b/tests/bashtests/001-lvm-add.sh
+index bdb57df..0cee95d 100755
+--- a/tests/bashtests/001-lvm-add.sh
++++ b/tests/bashtests/001-lvm-add.sh
+@@ -128,7 +128,7 @@ ssm -f remove --all
+ ssm add $dev1 $dev2
+ ssm -f remove $SSM_LVM_DEFAULT_POOL
+ # Try to use device with existing file system
+-mkfs.ext3 $dev1
++mkfs.ext3 -F $dev1
+ # Default answer is No
+ not ssm add $dev1
+ not check vg_field $SSM_LVM_DEFAULT_POOL pv_count 1
+@@ -138,7 +138,7 @@ check vg_field $SSM_LVM_DEFAULT_POOL pv_count 1
+ ssm -f remove $SSM_LVM_DEFAULT_POOL
+ 
+ # Try to use device with existing file system
+-mkfs.ext3 $dev1
++mkfs.ext3 -F $dev1
+ # Default answer is No
+ not ssm add $dev1
+ not check vg_field $SSM_LVM_DEFAULT_POOL pv_count 1
+@@ -147,12 +147,12 @@ check vg_field $SSM_LVM_DEFAULT_POOL pv_count 1
+ ssm -f remove --all
+ 
+ # Try to use device with existing file system with force
+-mkfs.ext3 $dev1
++mkfs.ext3 -F $dev1
+ # Default answer is No
+ ssm -f add $dev1
+ check vg_field $SSM_LVM_DEFAULT_POOL pv_count 1
+ ssm -f remove $SSM_LVM_DEFAULT_POOL
+-mkfs.ext3 $dev1
++mkfs.ext3 -F $dev1
+ ssm -f add $dev1 $dev2
+ check vg_field $SSM_LVM_DEFAULT_POOL pv_count 2
+ ssm -f remove --all
+diff --git a/tests/bashtests/002-lvm-create.sh b/tests/bashtests/002-lvm-create.sh
+index fee20a0..817ff48 100755
+--- a/tests/bashtests/002-lvm-create.sh
++++ b/tests/bashtests/002-lvm-create.sh
+@@ -348,17 +348,17 @@ ssm  -f remove --all
+ ssm create $dev1 $dev2
+ ssm -f remove $SSM_LVM_DEFAULT_POOL
+ # Create volume on device with existing file system
+-mkfs.ext3 $dev1
++mkfs.ext3 -F $dev1
+ not ssm create $dev1
+ ssm create $dev1 $dev2
+ ssm  -f remove --all
+ 
+ # Create volume on device with existing file system with force
+-mkfs.ext3 $dev1
++mkfs.ext3 -F $dev1
+ ssm -f create $dev1
+ check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 1
+ ssm -f remove $SSM_LVM_DEFAULT_POOL
+-mkfs.ext3 $dev1
++mkfs.ext3 -F $dev1
+ ssm -f create $dev1 $dev2
+ check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 2
+ ssm  -f remove --all
+diff --git a/tests/bashtests/004-lvm-resize.sh b/tests/bashtests/004-lvm-resize.sh
+index b02fc9b..3d544a5 100755
+--- a/tests/bashtests/004-lvm-resize.sh
++++ b/tests/bashtests/004-lvm-resize.sh
+@@ -235,20 +235,20 @@ ssm create $dev1
+ ssm resize -s +$((DEV_SIZE/2))M  $SSM_LVM_DEFAULT_POOL/$lvol1 $dev2
+ ssm -f remove $SSM_LVM_DEFAULT_POOL
+ # Use device with existing file system
+-mkfs.ext3 $dev2
++mkfs.ext3 -F $dev2
+ ssm create $dev1
+ not ssm resize -s +$((DEV_SIZE/2))M  $SSM_LVM_DEFAULT_POOL/$lvol1 $dev2
+ ssm resize -s +$((DEV_SIZE/2))M  $SSM_LVM_DEFAULT_POOL/$lvol1 $dev2 $dev3
+ ssm -f remove --all
+ 
+ # Use device with existing file system
+-mkfs.ext3 $dev2
++mkfs.ext3 -F $dev2
+ ssm create $dev1
+ ssm -f resize -s +$((DEV_SIZE/2))M  $SSM_LVM_DEFAULT_POOL/$lvol1 $dev2
+ check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 2
+ ssm -f remove $SSM_LVM_DEFAULT_POOL
+ 
+-mkfs.ext3 $dev2
++mkfs.ext3 -F $dev2
+ ssm create $dev1
+ ssm -f resize -s +$((DEV_SIZE/2))M  $SSM_LVM_DEFAULT_POOL/$lvol1 $dev2 $dev3
+ check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 3
+diff --git a/tests/bashtests/013-lvm-check.sh b/tests/bashtests/013-lvm-check.sh
+old mode 100644
+new mode 100755
+diff --git a/tests/bashtests/lib/test.sh b/tests/bashtests/lib/test.sh
+index 0d617c2..df13c81 100644
+--- a/tests/bashtests/lib/test.sh
++++ b/tests/bashtests/lib/test.sh
+@@ -31,8 +31,8 @@ export COMMON_PREFIX="SSMTEST"
+ export PREFIX="${COMMON_PREFIX}$$"
+ export SSM_PREFIX_FILTER=$PREFIX
+ 
+-export TESTDIR=$(mkdtemp ${LVM_TEST_DIR-$(pwd)} $PREFIX.XXXXXXXXXX) \
+-	|| { echo "failed to create temporary directory in ${LVM_TEST_DIR-$(pwd)}"; exit 1; }
++export TESTDIR=$(mkdtemp ${SSM_TEST_DIR-$(pwd)} $PREFIX.XXXXXXXXXX) \
++	|| { echo "failed to create temporary directory in ${SSM_TEST_DIR-$(pwd)}"; exit 1; }
+ export TEST_MNT=$TESTDIR/mnt
+ 
+ # check if coverage exists
+@@ -70,4 +70,29 @@ echo "@TESTDIR=$TESTDIR"
+ echo "@PREFIX=$PREFIX"
+ echo "@SSM_PREFIX_FILTER=$SSM_PREFIX_FILTER"
+ 
++# Set a debugging help - if an error occurs, it will tell the exact line number
++# and trace lines. Works only on bash 4.1+. Because bash can only work with
++# integers, it is easier to do a negative check for unsupported versions.
++if (( ${BASH_VERSION%%.*} <= 3 )) || [[ ${BASH_VERSION%.*} = 4.0 ]]; then
++	echo "Bash version does not support an easy detection of line number on a failure. Disabled."
++else
++	set -o functrace
++	function handle_error {
++		# do nothing if -e was not set
++		if [ $(printf %s\\n "$-" | grep -c e) -eq 0 ]; then
++			return
++		fi
++		local retval=$?
++		set +x
++		local line=${last_lineno:-$1}
++		echo "============ TEST FAILED ============="
++		echo "Failed at line $line"
++		echo "Trace (lines): " "$@"
++		echo "Command: $BASH_COMMAND"
++		exit $retval
++	}
++
++	trap 'handle_error $LINENO ${BASH_LINENO[@]}' ERR
++fi
++
+ set -vx
+diff --git a/tests/unittests/common.py b/tests/unittests/common.py
+index 1aa2204..5c539b3 100644
+--- a/tests/unittests/common.py
++++ b/tests/unittests/common.py
+@@ -74,6 +74,10 @@ class MockSystemDataSource(unittest.TestCase):
+         misc.run = self.mock_run
+         self.get_partitions_orig = misc.get_partitions
+         misc.get_partitions = self.mock_get_partitions
++        self.get_real_device_orig = misc.get_real_device
++        misc.get_real_device = self.mock_get_real_device
++        self.get_device_size_orig = misc.get_device_size
++        misc.get_device_size = self.mock_get_device_size
+         self.is_bdevice_orig = misc.is_bdevice
+         misc.is_bdevice = self.mock_is_bdevice
+         self.is_directory_orig = main.is_directory
+@@ -90,10 +94,13 @@ class MockSystemDataSource(unittest.TestCase):
+         misc.send_udev_event = self.mock_send_udev_event
+         self.get_fs_type_orig = misc.get_fs_type
+         misc.get_fs_type = self.mock_get_fs_type
++        self.create_directory = main.create_directory
++        main.create_directory = self.mock_create_directory
+         self.dev_data = {}
+         self.vol_data = {}
+         self.pool_data = {}
+         self.mount_data = {}
++        self.links = {}
+         self._mpoint = False
+         main.SSM_NONINTERACTIVE = True
+ 
+@@ -106,6 +113,8 @@ class MockSystemDataSource(unittest.TestCase):
+         self.mount_data = {}
+         misc.run = self.run_orig
+         misc.get_partitions = self.get_partitions_orig
++        misc.get_real_device = self.get_real_device_orig
++        misc.get_device_size = self.get_device_size_orig
+         misc.is_bdevice = self.is_bdevice_orig
+         main.is_directory = self.is_directory_orig
+         misc.get_mounts = self.get_mounts_orig
+@@ -154,6 +163,18 @@ class MockSystemDataSource(unittest.TestCase):
+                               data['dev_name']])
+         return partitions
+ 
++    def mock_get_real_device(self, devname):
++        for dev, data in self.dev_data.items():
++            if dev == devname:
++                return dev
++        for name, target in self.links.items():
++            if name == devname:
++                return self.mock_get_real_device(target)
++        return devname
++
++    def mock_get_device_size(self, device):
++        return self.dev_data[device]['dev_size']
++
+     def mock_is_directory(self, string):
+         if string in self.directories:
+             return string
+@@ -195,12 +216,18 @@ class MockSystemDataSource(unittest.TestCase):
+     def mock_send_udev_event(self, device, event):
+         pass
+ 
++    def mock_create_directory(self, string):
++        pass
++
+     def _removeMount(self, device):
+         del self.mount_data[device]
+ 
+     def _addDir(self, dirname):
+         self.directories.append(dirname)
+ 
++    def _addLink(self, target, name):
++        self.links[name] = target
++
+     def _addDevice(self, dev_name, dev_size, minor=0):
+         self.dev_data[dev_name] = {'dev_name': dev_name, 'dev_size': dev_size,
+                 'major': '8', 'minor': str(minor)}
+diff --git a/tests/unittests/test_lvm.py b/tests/unittests/test_lvm.py
+index b437ba7..22b8936 100644
+--- a/tests/unittests/test_lvm.py
++++ b/tests/unittests/test_lvm.py
+@@ -106,15 +106,15 @@ class LvmFunctionCheck(MockSystemDataSource):
+         self._cmdEq("lvm vgcreate -v -f {0} /dev/sda".format(default_pool), -3)
+ 
+         self._checkCmd("ssm create", ['-s 2.6T', '/dev/sda'],
+-            "lvm lvcreate {0} -L 2791728742.40K -n lvol001 /dev/sda".format(default_pool))
++            "lvm lvcreate {0} -L 2791728742.4K -n lvol001 /dev/sda".format(default_pool))
+         self._cmdEq("lvm vgcreate {0} /dev/sda".format(default_pool), -2)
+ 
+         self._checkCmd("ssm create", ['-r 0', '-s 2.6T', '-I 16', '/dev/sda'],
+-            "lvm lvcreate {0} -L 2791728742.40K -n lvol001 -I 16 -i 1 /dev/sda".format(default_pool))
++            "lvm lvcreate {0} -L 2791728742.4K -n lvol001 -I 16 -i 1 /dev/sda".format(default_pool))
+         self._cmdEq("lvm vgcreate {0} /dev/sda".format(default_pool), -2)
+ 
+         self._checkCmd("ssm create", ['-r 0', '-s 2.6T', '-I 16', '/dev/sda'],
+-            "lvm lvcreate {0} -L 2791728742.40K -n lvol001 -I 16 -i 1 /dev/sda".format(default_pool))
++            "lvm lvcreate {0} -L 2791728742.4K -n lvol001 -I 16 -i 1 /dev/sda".format(default_pool))
+         self._cmdEq("lvm vgcreate {0} /dev/sda".format(default_pool), -2)
+ 
+         # Number of stripes must not exceed number of devices
+@@ -127,7 +127,7 @@ class LvmFunctionCheck(MockSystemDataSource):
+ 
+         self._checkCmd("ssm create", ['-r 0', '-p my_pool', '-s 2.6T', '-I 16',
+             '-i 2', '/dev/sda /dev/sdb'],
+-            "lvm lvcreate my_pool -L 2791728742.40K -n lvol001 -I 16 -i 2 /dev/sda /dev/sdb")
++            "lvm lvcreate my_pool -L 2791728742.4K -n lvol001 -I 16 -i 2 /dev/sda /dev/sdb")
+         self._cmdEq("lvm vgcreate my_pool /dev/sda /dev/sdb", -2)
+ 
+         # Create volume using multiple devices
+@@ -141,13 +141,13 @@ class LvmFunctionCheck(MockSystemDataSource):
+ 
+         self._checkCmd("ssm create", ['-r 0', '-s 2.6T', '-I 16',
+             '-n myvolume', '/dev/sda'],
+-            "lvm lvcreate {0} -L 2791728742.40K -n myvolume -I 16 -i 1 /dev/sda". format(default_pool))
++            "lvm lvcreate {0} -L 2791728742.4K -n myvolume -I 16 -i 1 /dev/sda". format(default_pool))
+         self._cmdEq("lvm vgextend {0} /dev/sda".format(default_pool), -2)
+ 
+         self._addPool("my_pool", ['/dev/sdc2', '/dev/sdc3'])
+         self._checkCmd("ssm create", ['-r 0', '-p my_pool', '-s 2.6T', '-I 16',
+             '-n myvolume', '/dev/sda'],
+-            "lvm lvcreate my_pool -L 2791728742.40K -n myvolume -I 16 -i 1 /dev/sda")
++            "lvm lvcreate my_pool -L 2791728742.4K -n myvolume -I 16 -i 1 /dev/sda")
+         self._cmdEq("lvm vgextend my_pool /dev/sda", -2)
+ 
+         # Create volume using multiple devices which one of the is in already
+-- 
+2.21.0
+

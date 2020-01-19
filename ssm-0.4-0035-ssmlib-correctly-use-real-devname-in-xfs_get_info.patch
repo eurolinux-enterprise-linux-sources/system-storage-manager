@@ -1,0 +1,33 @@
+From 2b5c229157b740a3c6070c4d07244cbb3016316c Mon Sep 17 00:00:00 2001
+From: Jan Tulak <jtulak@redhat.com>
+Date: Wed, 6 Mar 2019 15:03:05 +0100
+Subject: [PATCH 09/22] ssmlib: correctly use real devname in xfs_get_info
+
+The dict from get_mounts() is indexed by real device name
+(get_real_device() in get_mountinfo/get_mounts_old), but we were using
+arbitrary name in xfs_get_info().  Use the real dev name instead.
+
+RHBZ 1664652
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+---
+ ssmlib/main.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/ssmlib/main.py b/ssmlib/main.py
+index 0957b60..5c94c3e 100644
+--- a/ssmlib/main.py
++++ b/ssmlib/main.py
+@@ -323,7 +323,8 @@ class FsInfo(object):
+     def xfs_get_info(self, dev):
+         # Never use xfs_db for a mounted filesystem - such use is unsupported
+         # by XFS and almost guaranteed to report stale data.
+-        mount_point = misc.get_mounts(dev).get(dev, {}).get('mp', None)
++        realdev = misc.get_real_device(dev)
++        mount_point = misc.get_mounts(dev).get(realdev, {}).get('mp', None)
+         if mount_point:
+             stat = os.statvfs(mount_point)
+             total = stat.f_blocks*stat.f_bsize
+-- 
+2.21.0
+

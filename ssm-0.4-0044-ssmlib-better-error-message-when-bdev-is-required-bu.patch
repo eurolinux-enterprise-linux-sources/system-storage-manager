@@ -1,0 +1,36 @@
+From 4f71b6abb6c42b0245f7427315d696a9235579ba Mon Sep 17 00:00:00 2001
+From: Jan Tulak <jtulak@redhat.com>
+Date: Thu, 31 May 2018 12:09:01 +0200
+Subject: [PATCH 18/22] ssmlib: better error message when bdev is required but
+ not provided
+
+If block device is required, but user provides anything else,
+   misc.is_bdevice returns False and overwrites the original string.
+   Use another variable, so we can still print the original string.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+---
+ ssmlib/main.py | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/ssmlib/main.py b/ssmlib/main.py
+index 34a6a70..52802f4 100644
+--- a/ssmlib/main.py
++++ b/ssmlib/main.py
+@@ -1613,10 +1613,10 @@ class StorageHandle(object):
+                 return
+         return self.get_bdevice(path)
+ 
+-    def get_bdevice(self, path):
+-        path = misc.is_bdevice(path)
++    def get_bdevice(self, string):
++        path = misc.is_bdevice(string)
+         if path == False:
+-            err = "'{0}' is not valid block device".format(path)
++            err = "'{0}' is not valid block device".format(string)
+             raise argparse.ArgumentTypeError(err)
+         return self._find_device_record(path)
+ 
+-- 
+2.21.0
+

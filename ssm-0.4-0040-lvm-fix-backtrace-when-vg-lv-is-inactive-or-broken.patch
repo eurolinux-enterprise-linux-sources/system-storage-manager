@@ -1,0 +1,63 @@
+From 3a01de7fa85d725a3c5f51d360d00feffe3d76c6 Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Thu, 2 Aug 2018 16:59:12 +0200
+Subject: [PATCH 14/22] lvm: fix backtrace when vg/lv is inactive or broken
+
+When lv/vg is inactive/broken and we have a lvm snapshot, it's possible to
+end up crashing because 'snap_size' may not be defined:
+
+size = float(snap['vol_size']) * float(snap['snap_size'])
+ValueError: could not convert string to float:
+
+Fix this be removing the snap_size field altogether. Add tests.
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+Reviewed-by: Jan Tulak <jtulak@redhat.com>
+---
+ ssmlib/backends/lvm.py              | 9 +++++++--
+ tests/bashtests/005-lvm-snapshot.sh | 9 +++++++++
+ 2 files changed, 16 insertions(+), 2 deletions(-)
+
+diff --git a/ssmlib/backends/lvm.py b/ssmlib/backends/lvm.py
+index ad13312..726ceb0 100644
+--- a/ssmlib/backends/lvm.py
++++ b/ssmlib/backends/lvm.py
+@@ -489,8 +489,13 @@ class SnapInfo(LvmInfo):
+         snap['snap_path'] = snap['dev_name']
+ 
+         if snap['type'] != "thin":
+-            size = float(snap['vol_size']) * float(snap['snap_size'])
+-            snap['snap_size'] = str(size / 100.00)
++            # It's possible that snap_percent in lvm output is not defined.
++            # For example on inactive volume, so just remove it.
++            if snap['snap_size']:
++                size = float(snap['vol_size']) * float(snap['snap_size'])
++                snap['snap_size'] = str(size / 100.00)
++            else:
++                del snap['snap_size']
+         else:
+             # Show thin-pool as a pool name in case of thin volumes
+             snap['parent_pool'] = snap['pool_name']
+diff --git a/tests/bashtests/005-lvm-snapshot.sh b/tests/bashtests/005-lvm-snapshot.sh
+index a353562..b34c3f8 100755
+--- a/tests/bashtests/005-lvm-snapshot.sh
++++ b/tests/bashtests/005-lvm-snapshot.sh
+@@ -175,6 +175,15 @@ not ssm snapthot -s $((DEV_SIZE*2)) -n $snap1 $SSM_LVM_DEFAULT_POOL/$lvol1
+ check vg_field $SSM_LVM_DEFAULT_POOL lv_count 1
+ ssm -f remove --all
+ 
++# Test for problem when ssm list crashed if snapshot volume is inactive
++ssm create $dev1 $dev2
++ssm add $dev3
++ssm snapshot -s $((DEV_SIZE/2)) -n $snap1 $SSM_LVM_DEFAULT_POOL/$lvol1
++check lv_field $SSM_LVM_DEFAULT_POOL/$snap1 lv_name $snap1
++echo y | lvchange -f -an $SSM_LVM_DEFAULT_POOL/$snap1
++ssm list
++ssm -f remove --all
++
+ # Some basic thin tests
+ export TVOL_PREFIX="tvol"
+ tvol1=${TVOL_PREFIX}001
+-- 
+2.21.0
+

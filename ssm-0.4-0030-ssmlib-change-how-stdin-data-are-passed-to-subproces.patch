@@ -1,0 +1,47 @@
+From 4ad5c53747c1b705cf005dfda3816fdba0cdabf7 Mon Sep 17 00:00:00 2001
+From: Jan Tulak <jtulak@redhat.com>
+Date: Tue, 16 Jan 2018 17:01:35 +0100
+Subject: [PATCH 04/22] ssmlib: change how stdin data are passed to
+ subprocesses
+
+This is fixing an issue where passing a stdin data to a subprocess (e.g.
+cryptsetup) led to (probably) a race condition, and ssm would crash with
+stdin being closed before any data were written. Simplify the call and
+use a more direct approach which does not seem to suffer the race
+condition.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+---
+ ssmlib/misc.py | 16 +---------------
+ 1 file changed, 1 insertion(+), 15 deletions(-)
+
+diff --git a/ssmlib/misc.py b/ssmlib/misc.py
+index c2cc246..280cd6e 100644
+--- a/ssmlib/misc.py
++++ b/ssmlib/misc.py
+@@ -478,21 +478,7 @@ def run(cmd, show_cmd=False, stdout=False, stderr=True, can_fail=False,
+     proc = subprocess.Popen(cmd, stdout=stdout,
+                             stderr=stderr, stdin=stdin, close_fds=True)
+ 
+-    if stdin_data is not None:
+-
+-        class StdinThread(threading.Thread):
+-
+-            def run(self):
+-                proc.stdin.write(stdin_data)
+-                proc.stdin.close()
+-        stdin_thread = StdinThread()
+-        stdin_thread.daemon = True
+-        stdin_thread.start()
+-
+-    output, error = proc.communicate()
+-
+-    if stdin_data is not None:
+-        stdin_thread.join()
++    output, error = proc.communicate(input=stdin_data)
+ 
+     err_msg = "ERROR running command: \"{0}\"".format(" ".join(cmd))
+     if proc.returncode != 0 and show_cmd:
+-- 
+2.21.0
+

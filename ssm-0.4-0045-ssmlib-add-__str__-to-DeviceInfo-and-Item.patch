@@ -1,0 +1,38 @@
+From 07786b19f270070065e80fb4b757dd86b51b6665 Mon Sep 17 00:00:00 2001
+From: Jan Tulak <jtulak@redhat.com>
+Date: Fri, 2 Mar 2018 15:57:48 +0100
+Subject: [PATCH 19/22] ssmlib: add __str__ to DeviceInfo and Item
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+---
+ ssmlib/main.py | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/ssmlib/main.py b/ssmlib/main.py
+index 52802f4..4b51457 100644
+--- a/ssmlib/main.py
++++ b/ssmlib/main.py
+@@ -475,6 +475,9 @@ class DeviceInfo(object):
+             return self.data[device]
+         return None
+ 
++    def __str__(self):
++        return repr(self.data)
++
+ 
+ class Item(object):
+     """
+@@ -523,6 +526,10 @@ class Item(object):
+         else:
+             return False
+ 
++    def __str__(self):
++        self._fill_fs_info()
++        return repr((self.names, repr(self.data)))
++
+     def _fill_fs_info(self):
+         if 'dm_name' in self.data:
+             name = self.data['dm_name']
+-- 
+2.21.0
+

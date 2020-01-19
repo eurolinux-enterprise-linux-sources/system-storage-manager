@@ -1,0 +1,56 @@
+From ef0d9fbc654e63440f156aa0683720feed097f49 Mon Sep 17 00:00:00 2001
+From: Jan Tulak <jtulak@redhat.com>
+Date: Wed, 1 Aug 2018 09:58:58 +0200
+Subject: [PATCH 02/22] resize: fix extN crash when no size was provided
+
+A call of ssm resize without --size on extN led to a traceback and a
+crash because of int(None).
+
+This is a dependency for "ssm: Fix a case where xfs growing could fail."
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+Reviewed-by: Lukas Czerner <lczerner@redhat.com>
+---
+ ssmlib/main.py                    | 2 +-
+ tests/bashtests/004-lvm-resize.sh | 5 +++++
+ 2 files changed, 6 insertions(+), 1 deletion(-)
+
+diff --git a/ssmlib/main.py b/ssmlib/main.py
+index a148e85..5619666 100644
+--- a/ssmlib/main.py
++++ b/ssmlib/main.py
+@@ -292,7 +292,6 @@ class FsInfo(object):
+ 
+     def extN_resize(self, new_size=None):
+         command = ['resize2fs', self.device]
+-        new_size = int(new_size)
+         if not misc.check_binary(command[0]):
+             PR.warn("\'{0}\' tool does not exist. ".format(command[0]) +
+                     "File system will not be resized")
+@@ -302,6 +301,7 @@ class FsInfo(object):
+         if self.options.verbose:
+             command.insert(1, "-p")
+         if new_size:
++            new_size = int(new_size)
+             command.append(str(new_size) + 'K')
+         # Ext3/4 can resize offline in both directions, but It can not shrink
+         # the file system while online. In addition ext2 can only resize
+diff --git a/tests/bashtests/004-lvm-resize.sh b/tests/bashtests/004-lvm-resize.sh
+index 3d544a5..e313e19 100755
+--- a/tests/bashtests/004-lvm-resize.sh
++++ b/tests/bashtests/004-lvm-resize.sh
+@@ -123,6 +123,11 @@ _test_resize()
+ 
+ }
+ 
++# do not fail when no size is specified
++ssm create --fstype ext4 $dev1 $dev2
++ssm resize $SSM_LVM_DEFAULT_POOL/$lvol1 $dev3
++ssm -f remove --all
++
+ ssm add $TEST_DEVS
+ size=$((TEST_MAX_SIZE/3))
+ ssm create --size ${size}M $TEST_DEVS
+-- 
+2.21.0
+

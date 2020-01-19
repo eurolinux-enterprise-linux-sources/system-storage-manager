@@ -1,0 +1,28 @@
+From c34d6e816ae9840ca701b1faf243f6774afe73d6 Mon Sep 17 00:00:00 2001
+From: Jan Tulak <jtulak@redhat.com>
+Date: Mon, 5 Feb 2018 11:26:56 +0100
+Subject: [PATCH 20/22] lvm: fix undefined variable
+
+This seems to be a copy&paste error, where the lv was missed when
+copying. Add it.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+---
+ ssmlib/backends/lvm.py | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/ssmlib/backends/lvm.py b/ssmlib/backends/lvm.py
+index 726ceb0..172c929 100644
+--- a/ssmlib/backends/lvm.py
++++ b/ssmlib/backends/lvm.py
+@@ -627,6 +627,7 @@ class ThinPool(LvmInfo, template.BackendPool):
+                options=None):
+         vg = self[vg]
+         if vg['active'] == False:
++            lv = vg['parent_pool'] + '/' + vg['lv_name']
+             self.problem.check(self.DEVICE_INACTIVE, lv)
+ 
+         if name:
+-- 
+2.21.0
+

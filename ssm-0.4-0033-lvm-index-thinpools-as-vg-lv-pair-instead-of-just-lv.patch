@@ -1,0 +1,130 @@
+From dd3d41380e1281a6e2d85dd60d97838f60417e1d Mon Sep 17 00:00:00 2001
+From: Jan Tulak <jtulak@redhat.com>
+Date: Thu, 23 Aug 2018 15:47:49 +0200
+Subject: [PATCH 07/22] lvm: index thinpools as vg-lv pair instead of just lv
+ name
+
+This fixes an issue where ssm incorrectly displayed only one of
+the same-name thinpools in different VGs, as the thinpool name was used
+as index key. This issue is fixed by using "vg/thinpool" as the index
+instead of just the "thinpool" name.
+
+Eg. in vg1/thinpool and vg2/thinpool, ssm saw only vg1/thinpool.
+
+Resolves: rhbz#1619476
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+---
+ ssmlib/backends/lvm.py          | 20 ++++++++++++++++++--
+ ssmlib/main.py                  | 11 ++++++++++-
+ tests/bashtests/011-lvm-list.sh | 20 ++++++++++++++++++++
+ 3 files changed, 48 insertions(+), 3 deletions(-)
+
+diff --git a/ssmlib/backends/lvm.py b/ssmlib/backends/lvm.py
+index 2b7b614..a634093 100644
+--- a/ssmlib/backends/lvm.py
++++ b/ssmlib/backends/lvm.py
+@@ -171,7 +171,7 @@ class VgsInfo(LvmInfo, template.BackendPool):
+         for i in range(1, MAX_LVS):
+             name = "{0}{1:0>{align}}".format(lvname, i, align=len(str(MAX_LVS)))
+             path = "{0}/{1}/{2}".format(DM_DEV_DIR, vg, name)
+-            if name in THIN_POOL_DATA:
++            if "{}/{}".format(vg, name) in THIN_POOL_DATA:
+                 continue
+             try:
+                 if stat.S_ISBLK(os.stat(path).st_mode):
+@@ -538,6 +538,7 @@ class ThinPool(LvmInfo, template.BackendPool):
+     def _fill_aditional_info(self, vg):
+         vg['type'] = 'thin'
+         vg['pool_name'] = os.path.basename(vg['lv_name'])
++        vg['index_name'] = "{}/{}".format(vg['parent_pool'], vg['pool_name'])
+         vg['pool_size'] = vg['vol_size']
+         vg['pool_used'] = float(vg['vol_size']) * (float(vg['data_percent'])/100)
+         vg['pool_free'] = float(vg['vol_size']) - vg['pool_used']
+@@ -546,9 +547,24 @@ class ThinPool(LvmInfo, template.BackendPool):
+         else:
+             vg['active'] = False
+ 
++    def __getitem__(self, key):
++        # we can have <key> in self.data and then it is simple
++        # but we can also have <parentpool>/<key> and then it gets complicated
++        if key in self.data:
++            return self.data[key]
++
++        found = None
++        for (name,item) in self.data.items():
++            subkey = name.split('/', 1)
++            if subkey[1] == key:
++                if not found:
++                    found = item
++                else:
++                    raise Exception("Multiple items with name {} found".format(key))
++        return found
+ 
+     def _data_index(self, row):
+-        return row['pool_name']
++        return row['index_name']
+ 
+     def _skip_data(self, row):
+         if row['attr'][0] not in ['t', 'T']:
+diff --git a/ssmlib/main.py b/ssmlib/main.py
+index 51c2978..4a1f22a 100644
+--- a/ssmlib/main.py
++++ b/ssmlib/main.py
+@@ -526,8 +526,17 @@ class Item(object):
+     def exists(self):
+         if self.name in self.obj:
+             return True
+-        else:
++
++        try:
++            # for some cases (like thin pool), the .name itself is not enough
++            # to guaratee uniqueness so these types of items are indexed by a
++            # name like <parent pool>/<name>. These items have the index_name
++            # data field, which is not mapped to .name
++            if 'index_name' in self and self['index_name'] in self.obj:
++                return True
++        except (AttributeError, TypeError):
+             return False
++        return False
+ 
+ 
+ class Storage(object):
+diff --git a/tests/bashtests/011-lvm-list.sh b/tests/bashtests/011-lvm-list.sh
+index 80d3ea0..027c5fc 100755
+--- a/tests/bashtests/011-lvm-list.sh
++++ b/tests/bashtests/011-lvm-list.sh
+@@ -43,6 +43,8 @@ pool1=$vg2
+ pool2=$vg3
+ pool3=$vg4
+ 
++tpool=${SSM_PREFIX_FILTER}_thinpool
++
+ TEST_FS=
+ which mkfs.ext2 && TEST_FS+="ext2 "
+ which mkfs.ext3 && TEST_FS+="ext3 "
+@@ -338,3 +340,21 @@ ssm -f remove $SSM_LVM_DEFAULT_POOL
+ 
+ # Some situation should fail
+ not ssm list wrong_type
++
++# test for same thinpool name in different VGs
++ssm create -v 1G -n $lvol1 -p $vg1 $dev1
++ssm create -v 1G -n $lvol1 -p $vg2 $dev2
++
++# ssm creates thinpool name automatically as ${vg}_${lv}
++# so we haveto rename it here to the same name in both VGs
++lvrename $vg1 ${vg1}_thin001 $tpool
++lvrename $vg2 ${vg2}_thin001 $tpool
++# check command has issues with multiple occurencies of the same name
++out=$(ssm list pools)
++echo "$out" | grep -c "^$tpool.*$vg1$"
++echo "$out" | grep -c "^$tpool.*$vg2$"
++
++# and remove it
++ssm -f remove $vg1/$tpool
++ssm -f remove $vg2/$tpool
++ssm -f remove --all
+-- 
+2.21.0
+

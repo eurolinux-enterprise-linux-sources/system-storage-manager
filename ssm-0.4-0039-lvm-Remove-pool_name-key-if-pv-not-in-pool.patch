@@ -1,0 +1,31 @@
+From d6d765be032d77c1430e9da2361f26bb62d5d41e Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Thu, 2 Aug 2018 16:59:13 +0200
+Subject: [PATCH 13/22] lvm: Remove pool_name key if pv not in pool
+
+When pv is not in volume group the pool_name will still be present in
+dictionary and it's value is going to be empty. Howeve this might
+be confusing because in several places we check for existing pool simply
+by checking for existence of 'pool_name' key. So remove it.
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+Reviewed-by: Jan Tulak <jtulak@redhat.com>
+---
+ ssmlib/backends/lvm.py | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/ssmlib/backends/lvm.py b/ssmlib/backends/lvm.py
+index a634093..ad13312 100644
+--- a/ssmlib/backends/lvm.py
++++ b/ssmlib/backends/lvm.py
+@@ -331,6 +331,7 @@ class PvsInfo(LvmInfo, template.BackendDevice):
+         if not pv['pool_name']:
+             pv['dev_used'] = ''
+             pv['dev_free'] = ''
++            del pv['pool_name']
+ 
+     def remove(self, devices):
+         if len(devices) == 0:
+-- 
+2.21.0
+

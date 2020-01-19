@@ -1,6 +1,6 @@
 Name:           system-storage-manager
 Version:        0.4
-Release:        7%{?dist}
+Release:        9%{?dist}
 Summary:        A single tool to manage your storage
 
 Group:          System Environment/Base
@@ -30,12 +30,42 @@ Patch18: ssm-0.4-ssm-Use-xfs_reparir-to-check-xfs-file-system-consist.patch
 Patch19: ssm-0.4-ssm-big-update-no-2.patch
 Patch20: ssm-0.4-ssm-Close-file-descriptors-on-popen.patch
 Patch21: ssm-0.4-crypt-Remove-resize-support.patch
+Patch22: ssm-0.4-misc-Return-stderr-output-in-run-as-well.patch
+Patch23: ssm-0.4-lvm-Move-lvm-specific-error-handling-to-lvm-backend.patch
+Patch24: ssm-0.4-tests-Test-ssm-list-with-exported-volume-groups.patch
+Patch25: ssm-0.4-tests-fix-bashtests-008-btrfs-remove.sh.patch
+Patch26: ssm-0.4-tests-Do-not-attpemt-to-mknod-loop-devices-if-not-ne.patch
+Patch27: ssm-0.4-0027-ssm-use-LC_ALL-C-when-running-tools-from-ssm.patch
+Patch28: ssm-0.4-0028-resize-fix-extN-crash-when-no-size-was-provided.patch
+Patch29: ssm-0.4-0029-ssm-Fix-a-case-where-xfs-growing-could-fail.patch
+Patch30: ssm-0.4-0030-ssmlib-change-how-stdin-data-are-passed-to-subproces.patch
+Patch31: ssm-0.4-0031-ssmlib-use-pwquality-to-test-password-strength-for-c.patch
+Patch32: ssm-0.4-0032-tests-add-a-test-case-for-crypt-and-a-weak-password.patch
+Patch33: ssm-0.4-0033-lvm-index-thinpools-as-vg-lv-pair-instead-of-just-lv.patch
+Patch34: ssm-0.4-0034-ssmlib-do-not-use-xfs_db-for-mounted-filesystems-use.patch
+Patch35: ssm-0.4-0035-ssmlib-correctly-use-real-devname-in-xfs_get_info.patch
+Patch36: ssm-0.4-0036-ssmlib-fix-sizes-in-xfs_get_info-for-mounted-devices.patch
+Patch37: ssm-0.4-0037-ssmlib-missing-pwquality-should-not-crash-the-whole-.patch
+Patch38: ssm-0.4-0038-ssmlib-partitions-detecting-for-loopback-devices.patch
+Patch39: ssm-0.4-0039-lvm-Remove-pool_name-key-if-pv-not-in-pool.patch
+Patch40: ssm-0.4-0040-lvm-fix-backtrace-when-vg-lv-is-inactive-or-broken.patch
+Patch41: ssm-0.4-0041-btrfs-Send-udev-change-event-for-every-device-after-.patch
+Patch42: ssm-0.4-0042-btrfs-send-udev-change-event-after-some-more-btrfs-o.patch
+Patch43: ssm-0.4-0043-ssmlib-fix-not_supported-error.patch
+Patch44: ssm-0.4-0044-ssmlib-better-error-message-when-bdev-is-required-bu.patch
+Patch45: ssm-0.4-0045-ssmlib-add-__str__-to-DeviceInfo-and-Item.patch
+Patch46: ssm-0.4-0046-lvm-fix-undefined-variable.patch
+Patch47: ssm-0.4-0047-ssm-add-a-workaround-for-lvm-and-exported-volumes.patch
+Patch48: ssm-0.4-0048-ssmlib-extend-CommandFailed-exception-with-exit-code.patch
+Patch49: ssm-0.4-0049-Big-tests-update-for-0.4-9.patch
 
 
 BuildArch:      noarch
 BuildRequires:  python-devel >= 2.6
+BuildRequires:  python-pwquality
 Requires:       python >= 2.6
 Requires:       python-libs >= 2.6
+Requires:       python-pwquality
 Requires:       util-linux
 Requires:       which
 Requires:       xfsprogs
@@ -109,6 +139,39 @@ technologies via a single unified interface.
 %patch20 -p1
 # crypt: Remove resize support
 %patch21 -p1
+# misc: Return stderr output in run() as well
+%patch22 -p1
+# lvm: Move lvm specific error handling to lvm backend
+%patch23 -p1
+# tests: Test ssm list with exported volume groups
+%patch24 -p1
+# tests: fix bashtests/008-btrfs-remove.sh
+%patch25 -p1
+# tests: Do not attpemt to mknod loop devices if not necessary
+%patch26 -p1
+%patch27 -p1
+%patch28 -p1
+%patch29 -p1
+%patch30 -p1
+%patch31 -p1
+%patch32 -p1
+%patch33 -p1
+%patch34 -p1
+%patch35 -p1
+%patch36 -p1
+%patch37 -p1
+%patch38 -p1
+%patch39 -p1
+%patch40 -p1
+%patch41 -p1
+%patch42 -p1
+%patch43 -p1
+%patch44 -p1
+%patch45 -p1
+%patch46 -p1
+%patch47 -p1
+%patch48 -p1
+%patch49 -p1
 
 %build
 # nothing to build
@@ -132,6 +195,21 @@ make test
 
 
 %changelog
+* Mon Mar 11 2019 Jan Tulak <jtulak@redhat.com> 0.4-9
+- Fix unhandled exception for some locales set through LC_ALL (#1679591)
+- Fix ssm resize fails with python stack trace (#1654583)
+- Fix poor luks password throwing an error (#1141871)
+- Fix unable to list thinpools with the same name (#1619476)
+- Fix ssm list delay in detecting xfs growth (#1664652)
+- Fix exported lvm volumes issue
+- Send udev change events for btrfs operations and on all fs creations
+- Fix issues with partitions on loopback devices
+- Better error reporting for some situations
+
+* Fri Jun 22 2018 Lukas Czerner <lczerner@redhat.com> 0.4-8
+- Fix error on ssm list when vg is exported (#1321236)
+- Fix btrfs test and tests in general
+
 * Thu Jul 21 2016 Lukas Czerner <lczerner@redhat.com> 0.4-7
 - Fix leaked descriptor on lvm invocation
 - Disallow resizing encrypted volumes

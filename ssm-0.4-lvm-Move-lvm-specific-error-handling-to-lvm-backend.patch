@@ -1,0 +1,46 @@
+From 13fb368abcf3e1c6e9b3d8767e32bab1017c9cb9 Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Fri, 22 Jun 2018 14:20:08 +0200
+Subject: [PATCH 2/5] lvm: Move lvm specific error handling to lvm backend
+
+Commit 7449db6b52cf108a1844bcaf94a5efcf5ea8a60a fixed the problem where
+lvs would exit with error code 5 if it encountered exported volume
+group. However this is very lvm specific hack that does belong to lvm
+backend rather than to the generic code. Move it
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+Fixes: 7449db6 ("ssm: add a workaround for lvm and exported volumes")
+---
+ ssmlib/backends/lvm.py | 16 +++++++++++++++-
+ 1 file changed, 15 insertions(+), 1 deletion(-)
+
+diff --git a/ssmlib/backends/lvm.py b/ssmlib/backends/lvm.py
+index b4b2570..2b7b614 100644
+--- a/ssmlib/backends/lvm.py
++++ b/ssmlib/backends/lvm.py
+@@ -110,7 +110,21 @@ class LvmInfo(template.Backend):
+     def _parse_data(self, command):
+         if not self.binary:
+             return
+-        self.output = misc.run(command, stderr=False)[1]
++        ret, self.output, err = misc.run(command, stderr=False, can_fail=True)
++        # A workaround for LVM behaviour:
++        # lvm lvs' exit code is 5 on exported volumes, even if everything
++        # is ok. So, if the code is 5, command was 'lvm lvs ...'
++        # and error message says that a volume was exported, ignore the
++        # error
++        if ret != 0:
++            err_msg = "ERROR exit code {0} for running command: \"{1}\"".format(
++                      ret, " ".join(command))
++            if ret != 5 or command[0:2] != ['lvm', 'lvs'] or \
++               not str(err).endswith('is exported\n'):
++                if err is not None:
++                    print(err)
++                raise problem.CommandFailed(err_msg, exitcode=ret)
++
+         for line in self.output.split("\n"):
+             if not line:
+                 break
+-- 
+2.17.1
+

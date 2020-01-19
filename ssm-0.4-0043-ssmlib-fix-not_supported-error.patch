@@ -1,0 +1,72 @@
+From 89b84986d0d69446151b5d577b4c75638bdf08b1 Mon Sep 17 00:00:00 2001
+From: Jan Tulak <jtulak@redhat.com>
+Date: Fri, 1 Jun 2018 12:50:43 +0200
+Subject: [PATCH 17/22] ssmlib: fix not_supported error
+
+The not_supported errors were not in line of how problem.check() and
+NOT_SUPPORTED should be used - NOT_SUPPORTED requires two values in args
+argument to format into "{0} function is not implemented by {1}", but
+the call in template behaved as if the message was directly printed.
+
+Signed-off-by: Jan Tulak <jtulak@redhat.com>
+---
+ ssmlib/backends/template.py | 16 ++++++++--------
+ 1 file changed, 8 insertions(+), 8 deletions(-)
+
+diff --git a/ssmlib/backends/template.py b/ssmlib/backends/template.py
+index 56bed56..4c1d317 100644
+--- a/ssmlib/backends/template.py
++++ b/ssmlib/backends/template.py
+@@ -55,24 +55,24 @@ class BackendPool(Backend):
+ 
+     def reduce(self, pool, device):
+         self.problem.check(self.problem.NOT_SUPPORTED,
+-                        "Reducing pool with {0} backend".format(self.type))
++                        ["Reducing pool", "{} backend".format(self.type)])
+ 
+     def new(self, pool, devices):
+         self.problem.check(self.problem.NOT_SUPPORTED,
+-                        "Creating new pool with {0} backend".format(self.type))
++                        ["Creating new pool", "{} backend".format(self.type)])
+ 
+     def extend(self, pool, devices):
+         self.problem.check(self.problem.NOT_SUPPORTED,
+-                        "Extending pool with {0} backend".format(self.type))
++                        ["Extending pool", "{} backend".format(self.type)])
+ 
+     def remove(self, pool):
+         self.problem.check(self.problem.NOT_SUPPORTED,
+-                        "Removing pool with {0} backend".format(self.type))
++                        ["Removing pool", "{} backend".format(self.type)])
+ 
+     def create(self, pool, size=None, name=None, devs=None,
+                options=None):
+         self.problem.check(self.problem.NOT_IMPLEMENTED,
+-                        "Creating volume with {0} backend".format(self.type))
++                        ["Creating volume", "{} backend".format(self.type)])
+ 
+ 
+ class BackendVolume(Backend):
+@@ -81,11 +81,11 @@ class BackendVolume(Backend):
+ 
+     def remove(self, volume):
+         self.problem.check(self.problem.NOT_SUPPORTED,
+-                        "Removing volume with {0} backend".format(self.type))
++                        ["Removing volume", "{} backend".format(self.type)])
+ 
+     def resize(self, volume, size, resize_fs=True):
+         self.problem.check(self.problem.NOT_SUPPORTED,
+-                        "Resizing volume with {0} backend".format(self.type))
++                        ["Resizing volume", "{} backend".format(self.type)])
+ 
+ 
+ class BackendDevice(Backend):
+@@ -94,4 +94,4 @@ class BackendDevice(Backend):
+ 
+     def remove(self, devices):
+         self.problem.check(self.problem.NOT_SUPPORTED,
+-                        "Removing device with {0} backend".format(self.type))
++                        ["Removing device", "{} backend".format(self.type)])
+-- 
+2.21.0
+
