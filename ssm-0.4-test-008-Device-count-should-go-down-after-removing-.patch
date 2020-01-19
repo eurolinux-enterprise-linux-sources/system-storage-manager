@@ -1,0 +1,27 @@
+From 0e461e0fb15c47513faf0f27b553624ea51b069b Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Wed, 15 Jan 2014 17:39:00 +0100
+Subject: [PATCH 06/10] test 008: Device count should go down after removing a
+ device
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+---
+ tests/bashtests/008-btrfs-remove.sh | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/tests/bashtests/008-btrfs-remove.sh b/tests/bashtests/008-btrfs-remove.sh
+index fd9b91e..4e40e99 100755
+--- a/tests/bashtests/008-btrfs-remove.sh
++++ b/tests/bashtests/008-btrfs-remove.sh
+@@ -93,7 +93,7 @@ export SSM_DEFAULT_BACKEND='btrfs'
+ not check btrfs_fs_field $pool1 label $pool1
+ not check btrfs_vol_field $mnt1 subvolume $vol1
+ not check btrfs_vol_field $mnt2 subvolume $vol2
+-check btrfs_fs_field $SSM_BTRFS_DEFAULT_POOL dev_count 5
++check btrfs_fs_field $SSM_BTRFS_DEFAULT_POOL dev_count 4
+ umount_all
+ ssm -f remove --all
+ 
+-- 
+1.8.3.1
+

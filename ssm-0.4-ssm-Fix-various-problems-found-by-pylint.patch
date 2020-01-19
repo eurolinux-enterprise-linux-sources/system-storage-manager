@@ -1,0 +1,222 @@
+From 0dcf4bcee5c5f6503905dac298dee77f1141f783 Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Fri, 17 Jan 2014 16:05:56 +0100
+Subject: [PATCH] ssm: Fix various problems found by pylint
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+---
+ ssmlib/__init__.py       |  2 +-
+ ssmlib/backends/btrfs.py | 12 +++++-------
+ ssmlib/backends/crypt.py |  5 ++---
+ ssmlib/backends/lvm.py   |  3 +--
+ ssmlib/backends/md.py    |  3 ---
+ ssmlib/main.py           |  6 +++---
+ ssmlib/misc.py           | 12 ++++++------
+ 7 files changed, 18 insertions(+), 25 deletions(-)
+
+diff --git a/ssmlib/__init__.py b/ssmlib/__init__.py
+index f1bcfdb..0a49de2 100644
+--- a/ssmlib/__init__.py
++++ b/ssmlib/__init__.py
+@@ -15,4 +15,4 @@
+ # You should have received a copy of the GNU General Public License
+ # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
+-__all__ = ["backends", "misc", "main", "problem"]
++__all__ = ["backend", "misc", "main", "problem"]
+diff --git a/ssmlib/backends/btrfs.py b/ssmlib/backends/btrfs.py
+index 836f108..acd5446 100644
+--- a/ssmlib/backends/btrfs.py
++++ b/ssmlib/backends/btrfs.py
+@@ -19,10 +19,8 @@
+ 
+ import re
+ import os
+-import sys
+ import datetime
+ from ssmlib import misc
+-from ssmlib import problem
+ from ssmlib.backends import template
+ 
+ __all__ = ["BtrfsVolume", "BtrfsPool", "BtrfsDev"]
+@@ -37,7 +35,7 @@ def get_btrfs_version():
+     try:
+         output = misc.run(['btrfs', '--version'], can_fail=True)[1]
+         output = output.strip().split("\n")[-1]
+-        version = re.search('(?<=v)\d+\.\d+', output).group(0)
++        version = re.search(r'(?<=v)\d+\.\d+', output).group(0)
+     except (OSError, AttributeError):
+         version = "0.0"
+     return float(version)
+@@ -262,7 +260,7 @@ class Btrfs(template.Backend):
+                 new['hide'] = False
+                 # Store snapshot info
+                 if 'mount' in new and \
+-                    re.match("snap-\d{4}-\d{2}-\d{2}-T\d{6}",
++                    re.match(r"snap-\d{4}-\d{2}-\d{2}-T\d{6}",
+                              os.path.basename(new['mount'])):
+                     new['snap_name'] = "{0}:{1}".format(name,
+                             os.path.basename(new['path']))
+@@ -279,8 +277,8 @@ class Btrfs(template.Backend):
+                 continue
+             # For the version with screwed 'subvolume list' command
+             line = re.sub("<FS_TREE>/*", "", line)
+-            volume['ID'] = re.search('(?<=ID )\d+', line).group(0)
+-            volume['top_level'] = re.search('(?<=top level )\d+', line).group(0)
++            volume['ID'] = re.search(r'(?<=ID )\d+', line).group(0)
++            volume['top_level'] = re.search(r'(?<=top level )\d+', line).group(0)
+             volume['path'] = re.search('(?<=path ).*$', line).group(0)
+             volume['subvolume'] = True
+             yield volume
+@@ -450,7 +448,7 @@ class BtrfsPool(Btrfs, template.BackendPool):
+                 command.extend(['-m', 'raid10', '-d', 'raid10'])
+             else:
+                 raise Exception("Btrfs backed currently does not support " +
+-                                "RAID level {0}".format(raid['level']))
++                                "RAID level {0}".format(options['raid']))
+ 
+         if size:
+             command.extend(['-b', "{0}".format(int(float(size) * 1024))])
+diff --git a/ssmlib/backends/crypt.py b/ssmlib/backends/crypt.py
+index 4aad266..8c1b48c 100644
+--- a/ssmlib/backends/crypt.py
++++ b/ssmlib/backends/crypt.py
+@@ -21,7 +21,6 @@ import re
+ import os
+ import stat
+ from ssmlib import misc
+-from ssmlib import problem
+ from ssmlib.backends import template
+ 
+ __all__ = ["DmCryptVolume"]
+@@ -240,7 +239,7 @@ class DmCryptDevice(DmObject, template.BackendDevice):
+             device = {}
+             devname = "/dev/" + line[3]
+             signature = misc.get_signature(devname)
+-            if misc.get_signature(devname) in CRYPT_SIGNATURES:
++            if signature in CRYPT_SIGNATURES:
+                 device['hide'] = False
+                 device['dev_name'] = devname
+                 device['pool_name'] = self.default_pool_name
+@@ -250,4 +249,4 @@ class DmCryptDevice(DmObject, template.BackendDevice):
+ 
+ 
+     def remove(self, devices):
+-        misc.wipefs(device, CRYPT_SIGNATURES)
++        misc.wipefs(devices, CRYPT_SIGNATURES)
+diff --git a/ssmlib/backends/lvm.py b/ssmlib/backends/lvm.py
+index 955c705..4c7c0ad 100644
+--- a/ssmlib/backends/lvm.py
++++ b/ssmlib/backends/lvm.py
+@@ -22,7 +22,6 @@ import os
+ import stat
+ import datetime
+ from ssmlib import misc
+-from ssmlib import problem
+ from ssmlib.backends import template
+ 
+ __all__ = ["PvsInfo", "VgsInfo", "LvsInfo"]
+@@ -47,7 +46,7 @@ def get_lvm_version():
+         for line in output:
+             if pattern.match(line.strip()):
+                 match = " ".join(line.split())
+-                tmp = re.search('(?<=LVM version: )\d+\.\d+\.\d+',
++                tmp = re.search(r'(?<=LVM version: )\d+\.\d+\.\d+',
+                                     match).group(0)
+                 version = map(int, tmp.split(".", 3))
+     except (OSError, AttributeError):
+diff --git a/ssmlib/backends/md.py b/ssmlib/backends/md.py
+index f33243c..1e3c6e2 100644
+--- a/ssmlib/backends/md.py
++++ b/ssmlib/backends/md.py
+@@ -18,11 +18,8 @@
+ # md module for System Storage Manager
+ 
+ import os
+-import stat
+ import socket
+-import datetime
+ from ssmlib import misc
+-from ssmlib import problem
+ from ssmlib.backends import template
+ 
+ try:
+diff --git a/ssmlib/main.py b/ssmlib/main.py
+index 7aab312..c294aec 100644
+--- a/ssmlib/main.py
++++ b/ssmlib/main.py
+@@ -1284,7 +1284,7 @@ class StorageHandle(object):
+                 try:
+                     pool.remove()
+                     removed += 1
+-                except (RuntimeError, problem.SsmError), ex:
++                except (RuntimeError, problem.SsmError):
+                     PR.info("Unable to remove '{0}'".format(pool['pool_name']))
+                     ret = False
+             if removed == 0:
+@@ -1378,7 +1378,6 @@ class StorageHandle(object):
+         dev = self.dev[real]
+         if dev and 'fs_info' in dev:
+             return dev
+-        err = "'{0}' does not contain valid file system".format(real)
+         return False
+ 
+     def _find_device_record(self, path):
+@@ -1544,6 +1543,7 @@ def valid_resize_size(size):
+ 
+ def is_directory(string):
+     if string is None:
++        err = "Directory name not defined."
+         raise argparse.ArgumentTypeError(err)
+     try:
+         mode = os.stat(string).st_mode
+@@ -1847,7 +1847,7 @@ def main(args=None):
+     sys.exitfunc = misc.do_cleanup
+ 
+     if args.dry_run:
+-        return 0;
++        return 0
+ 
+     try:
+         args.func(args)
+diff --git a/ssmlib/misc.py b/ssmlib/misc.py
+index 915cad1..77ddc2d 100644
+--- a/ssmlib/misc.py
++++ b/ssmlib/misc.py
+@@ -77,9 +77,9 @@ def get_unit_size(string):
+     unit = re.sub(r'^\+?-?\d+(\.\d*)?', '', string)
+     if len(unit) > 0 and unit[0].upper() in units:
+         mult = units[unit[0].upper()]
+-    all_units = {'B', 'K', 'M', 'G', 'T', 'P',
++    all_units = ['B', 'K', 'M', 'G', 'T', 'P',
+                  'KB', 'MB', 'GB', 'TB', 'PB',
+-                 'KIB', 'MIB', 'GIB', 'TIB', 'PIB'}
++                 'KIB', 'MIB', 'GIB', 'TIB', 'PIB']
+     if unit.upper() in all_units:
+         return mult, unit
+     else:
+@@ -198,9 +198,9 @@ def get_device_by_uuid(uuid):
+ 
+ def get_major_minor(device):
+     real_dev = get_real_device(device)
+-    stat = os.stat(real_dev)
+-    major = os.major(stat.st_rdev)
+-    minor = os.minor(stat.st_rdev)
++    info = os.stat(real_dev)
++    major = os.major(info.st_rdev)
++    minor = os.minor(info.st_rdev)
+     return major, minor
+ 
+ 
+@@ -579,7 +579,7 @@ def terminal_size(default=(25, 80)):
+             except:
+                 pass
+         if not cr:
+-            cr = (25, 80)
++            cr = default
+     return int(cr[1]), int(cr[0])
+ 
+ 
+-- 
+1.8.3.1
+

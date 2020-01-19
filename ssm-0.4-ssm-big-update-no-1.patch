@@ -1,0 +1,3126 @@
+diff --git a/Makefile b/Makefile
+index 629a83f..2d887c4 100644
+--- a/Makefile
++++ b/Makefile
+@@ -1,3 +1,6 @@
++PYTHONPATH := $(shell pwd)
++export PYTHONPATH
++
+ all: help
+ 
+ help:
+@@ -53,4 +56,7 @@ source: test clean
+ test:
+ 	@python test.py
+ 
++push_html:
++	scp -r doc/_build/singlehtml/* lczerner@shell.sourceforge.net:/home/project-web/storagemanager/htdocs/
++
+ release: git-clean clean check_vars authors spec log docs source
+diff --git a/README b/README
+index ea3d3c3..71b09e8 100644
+--- a/README
++++ b/README
+@@ -162,6 +162,9 @@ In some cases file system has to be mounted in order to resize. This
+ will be handled by **ssm** automatically by mounting the **volume**
+ temporarily.
+ 
++Note that resizing btrfs subvolume is not supported, only the whole
++file system can be resized.
++
+ 
+ Check command
+ *************
+@@ -256,8 +259,8 @@ volume
+    Volume in btrfs back-end is actually just btrfs subvolume with the
+    exception of the first volume created on btrfs pool creation, which
+    is the file system itself. Subvolumes can only be created on btrfs
+-   file system when the it is mounted, but user does not have to worry
+-   about that, since **ssm** will automatically mount the file system
++   file system when it is mounted, but user does not have to worry
++   about that since **ssm** will automatically mount the file system
+    temporarily in order to create a new subvolume.
+ 
+    Volume name is used as subvolume path in the btrfs file system and
+@@ -270,6 +273,10 @@ volume
+    system is mounted, with the exception of the main btrfs volume -
+    the file system itself.
+ 
++   Also note that btrfs volumes and subvolumes can not be resized.
++   This is mainly limitation of the btrfs tools which currently does
++   not work reliably.
++
+    New btrfs volume can be created with **create** command.
+ 
+ snapshot
+@@ -323,10 +330,40 @@ device
+ Crypt backend
+ *************
+ 
+-Crypt backend in **ssm** is currently limited to only gather the
+-information about encrypted volumes in the system. You can not create
+-or manage encrypted volumes or pools, but it will be extended in the
+-future.
++Crypt backend in **ssm** uses cryptsetup and dm-crypt target to manage
++encrypted volumes. Crypt backend can be used as a regular backend for
++creating encrypted volumes on top of regular block devices, or even
++other volumes (lvm or md volumes for example). Or it can be used to
++create encrypted lvm volumes right away in a single step.
++
++Only volumes can be created with crypt backend. This backend does not
++support pooling and does not require special devices.
++
++pool
++   Crypt backend does not support pooling it is not possible to create
++   crypt pool or add a device into a pool.
++
++volume
++   Volume in crypt backend is the volume created by dm-crypt which
++   represent the data on the original encrypted device in unencrypted
++   form. Crypt backend does not support pooling, so only one device
++   can be used to create crypt volume. It also does not support raid
++   or any device concatenation.
++
++   Currently two modes, or extensions are supported luks and plain.
++   Luks is used by default.For more information about the extensions
++   please see **cryptsetup** manual page.
++
++snapshot
++   Crypt backend does not support snapshotting, however if the
++   encrypted volume is created on top of the lvm volume, the lvm
++   volume itself can be snapshotted. The snapshot can be then opened
++   by using **cryptsetup**. It is possible that this might change in
++   the future so that **ssm** will be able to activate the volume
++   directly without the extra step.
++
++device
++   Crypt backend does not require any special device to be created on.
+ 
+ 
+ Environment variables
+diff --git a/bin/ssm b/bin/ssm
+index fc1ce48..baa3c60 100755
+--- a/bin/ssm
++++ b/bin/ssm
+@@ -32,4 +32,5 @@ try:
+                 sys.exit("\nRoot privileges required to run this script!\n")
+         sys.exit(main.main())
+ except problem.SsmError, err:
++    print str(err)
+     sys.exit(err.errcode)
+diff --git a/doc/_build/man/ssm.8 b/doc/_build/man/ssm.8
+index 16ac1e8..ab777bf 100644
+--- a/doc/_build/man/ssm.8
++++ b/doc/_build/man/ssm.8
+@@ -1,6 +1,6 @@
+ .\" Man page generated from reStructuredText.
+ .
+-.TH "SSM" "8" "August 07, 2013" "0.4" "System Storage Manager"
++.TH "SSM" "8" "October 02, 2013" "0.4" "System Storage Manager"
+ .SH NAME
+ ssm \- System Storage Manager: a single tool to manage your storage
+ .
+@@ -59,9 +59,9 @@ level margin: \\n[rst2man-indent\\n[rst2man-indent-level]]
+ ..
+ .SH SYNOPSIS
+ .sp
+-\fBssm\fP [\fB\-h\fP] [\fB\-\-version\fP] [\fB\-v\fP] [\fB\-f\fP] [\fB\-b\fP BACKEND] {check,resize,create,list,add,remove,snapshot,mount} ...
++\fBssm\fP [\fB\-h\fP] [\fB\-\-version\fP] [\fB\-v\fP] [\fB\-f\fP] [\fB\-b\fP BACKEND] [\fB\-n\fP] {check,resize,create,list,add,remove,snapshot,mount} ...
+ .sp
+-\fBssm\fP \fBcreate\fP [\fB\-h\fP] [\fB\-s\fP SIZE] [\fB\-n\fP NAME] [\fB\-\-fstype\fP FSTYPE] [\fB\-r\fP LEVEL] [\fB\-I\fP STRIPESIZE] [\fB\-i\fP STRIPES] [\fB\-p\fP POOL] [\fBdevice\fP [\fBdevice\fP ...]] [mount]
++\fBssm\fP \fBcreate\fP [\fB\-h\fP] [\fB\-s\fP SIZE] [\fB\-n\fP NAME] [\fB\-\-fstype\fP FSTYPE] [\fB\-r\fP LEVEL] [\fB\-I\fP STRIPESIZE] [\fB\-i\fP STRIPES] [\fB\-p\fP POOL] [\fB\-e\fP [{luks,plain}]] [\fBdevice\fP [\fBdevice\fP ...]] [mount]
+ .sp
+ \fBssm\fP \fBlist\fP [\fB\-h\fP] [{volumes,vol,dev,devices,pool,pools,fs,filesystems,snap,snapshots}]
+ .sp
+@@ -110,7 +110,15 @@ or questions.
+ .TP
+ .BI \-b \ BACKEND\fP,\fB \ \-\-backend \ BACKEND
+ Choose backend to use. Currently you can choose from
+-(lvm,btrfs).
++(lvm,btrfs,crypt).
++.TP
++.B \-n\fP,\fB  \-\-dry\-run
++Dry run. Do not do anything, just parse the command
++line options and gather system information if
++necessary. Note that with this option ssm will not
++perform all the check as some of them are done by the
++backends themselves. This option is mainly used for
++debugging purposes.
+ .UNINDENT
+ .SH SYSTEM STORAGE MANAGER COMMANDS
+ .SS Introduction
+@@ -120,7 +128,7 @@ line as a first argument to the ssm. They all have specific use and its own
+ arguments, but global ssm arguments are propagated to all commands.
+ .SS Create command
+ .sp
+-\fBssm\fP \fBcreate\fP [\fB\-h\fP] [\fB\-s\fP SIZE] [\fB\-n\fP NAME] [\fB\-\-fstype\fP FSTYPE] [\fB\-r\fP LEVEL] [\fB\-I\fP STRIPESIZE] [\fB\-i\fP STRIPES] [\fB\-p\fP POOL] [\fBdevice\fP [\fBdevice\fP ...]] [mount]
++\fBssm\fP \fBcreate\fP [\fB\-h\fP] [\fB\-s\fP SIZE] [\fB\-n\fP NAME] [\fB\-\-fstype\fP FSTYPE] [\fB\-r\fP LEVEL] [\fB\-I\fP STRIPESIZE] [\fB\-i\fP STRIPES] [\fB\-p\fP POOL] [\fB\-e\fP [{luks,plain}]] [\fBdevice\fP [\fBdevice\fP ...]] [mount]
+ .sp
+ This command creates a new volume with defined parameters. If \fBdevice\fP is
+ provided it will be used to create a volume, hence it will be added into the
+@@ -195,6 +203,12 @@ you have to specify RAID level as well.
+ .BI \-p \ POOL\fP,\fB \ \-\-pool \ POOL
+ Pool to use to create the new volume.
+ .UNINDENT
++.INDENT 0.0
++.TP
++.B \-e [{luks,plain}], \-\-encrypt [{luks,plain}]
++Create encrpted volume. Extension to use can be
++specified.
++.UNINDENT
+ .SS List command
+ .sp
+ \fBssm\fP \fBlist\fP [\fB\-h\fP] [{volumes,vol,dev,devices,pool,pools,fs,filesystems,snap,snapshots}]
+@@ -280,6 +294,9 @@ ask you whether you want to remove it from the original pool.
+ .sp
+ In some cases file system has to be mounted in order to resize. This will be
+ handled by \fBssm\fP automatically by mounting the \fBvolume\fP temporarily.
++.sp
++Note that resizing btrfs subvolume is not supported, only the whole file
++system can be resized.
+ .INDENT 0.0
+ .TP
+ .B \-h\fP,\fB  \-\-help
+@@ -435,8 +452,8 @@ devices specified and non existing pool name.
+ Volume in btrfs back\-end is actually just btrfs subvolume with the
+ exception of the first volume created on btrfs pool creation, which is
+ the file system itself. Subvolumes can only be created on btrfs file
+-system when the it is mounted, but user does not have to
+-worry about that, since \fBssm\fP will automatically mount the file
++system when it is mounted, but user does not have to
++worry about that since \fBssm\fP will automatically mount the file
+ system temporarily in order to create a new subvolume.
+ .sp
+ Volume name is used as subvolume path in the btrfs file system and every
+@@ -449,6 +466,10 @@ Btrfs volumes are only shown in the \fIlist\fP output, when the file system is
+ mounted, with the exception of the main btrfs volume \- the file system
+ itself.
+ .sp
++Also note that btrfs volumes and subvolumes can not be resized. This is
++mainly limitation of the btrfs tools which currently does not work
++reliably.
++.sp
+ New btrfs volume can be created with \fBcreate\fP command.
+ .TP
+ .B snapshot
+@@ -498,9 +519,41 @@ Lvm requires \fIphysical device\fP to be created on the device, but with
+ .UNINDENT
+ .SS Crypt backend
+ .sp
+-Crypt backend in \fBssm\fP is currently limited to only gather the information
+-about encrypted volumes in the system. You can not create or manage encrypted
+-volumes or pools, but it will be extended in the future.
++Crypt backend in \fBssm\fP uses cryptsetup and dm\-crypt target to manage
++encrypted volumes. Crypt backend can be used as a regular backend for
++creating encrypted volumes on top of regular block devices, or even other
++volumes (lvm or md volumes for example). Or it can be used to create
++encrypted lvm volumes right away in a single step.
++.sp
++Only volumes can be created with crypt backend. This backend does not
++support pooling and does not require special devices.
++.INDENT 0.0
++.TP
++.B pool
++Crypt backend does not support pooling it is not possible to create
++crypt pool or add a device into a pool.
++.TP
++.B volume
++Volume in crypt backend is the volume created by dm\-crypt which
++represent the data on the original encrypted device in unencrypted form.
++Crypt backend does not support pooling, so only one device can be used
++to create crypt volume. It also does not support raid or any device
++concatenation.
++.sp
++Currently two modes, or extensions are supported luks and plain. Luks
++is used by default.For more information about the extensions please see
++\fBcryptsetup\fP manual page.
++.TP
++.B snapshot
++Crypt backend does not support snapshotting, however if the encrypted
++volume is created on top of the lvm volume, the lvm volume itself can
++be snapshotted. The snapshot can be then opened by using \fBcryptsetup\fP\&.
++It is possible that this might change in the future so that \fBssm\fP will
++be able to activate the volume directly without the extra step.
++.TP
++.B device
++Crypt backend does not require any special device to be created on.
++.UNINDENT
+ .SS MD backend
+ .sp
+ MD backend in \fBssm\fP is currently limited to only gather the information
+diff --git a/ssmlib/backends/btrfs.py b/ssmlib/backends/btrfs.py
+index 04e405c..a4aedda 100644
+--- a/ssmlib/backends/btrfs.py
++++ b/ssmlib/backends/btrfs.py
+@@ -23,6 +23,7 @@ import sys
+ import datetime
+ from ssmlib import misc
+ from ssmlib import problem
++from ssmlib.backends import template
+ 
+ __all__ = ["BtrfsVolume", "BtrfsPool", "BtrfsDev"]
+ 
+@@ -56,12 +57,11 @@ def get_btrfs_version():
+ BTRFS_VERSION = get_btrfs_version()
+ 
+ 
+-class Btrfs(object):
++class Btrfs(template.Backend):
+ 
+-    def __init__(self, options, data=None):
++    def __init__(self, *args, **kwargs):
++        super(Btrfs, self).__init__(*args, **kwargs)
+         self.type = 'btrfs'
+-        self.data = data or {}
+-        self.options = options
+         self.default_pool_name = SSM_BTRFS_DEFAULT_POOL
+         self._vol = {}
+         self._pool = {}
+@@ -69,13 +69,12 @@ class Btrfs(object):
+         self._snap = {}
+         self._subvolumes = {}
+         self._binary = misc.check_binary('btrfs')
+-        self.problem = problem.ProblemSet(options)
+         self.modified_list_version = True
+ 
+         if not self._binary:
+             return
+ 
+-        self.mounts = misc.get_mounts('/dev/')
++        self.mounts = misc.get_mounts('btrfs')
+         command = ['btrfs', 'filesystem', 'show']
+         self.output = misc.run(command, stderr=False)[1]
+ 
+@@ -107,12 +106,12 @@ class Btrfs(object):
+                 pool['uuid'] = vol['uuid'] = uuid
+ 
+                 try:
+-                    fallback = False
+                     vol['real_dev'] = misc.get_device_by_uuid(uuid)
+ 
+                     if vol['real_dev'] in self.mounts:
+                         pool['mount'] = self.mounts[vol['real_dev']]['mp']
+                         vol['mount'] = self.mounts[vol['real_dev']]['mp']
++
+                     else:
+                         for dev_i in self.mounts:
+                             found = re.findall(r'{0}:/.*'.format(vol['real_dev']), dev_i)
+@@ -121,7 +120,6 @@ class Btrfs(object):
+                                 break
+                 except OSError:
+                     # udev is "hard-to-work-with" sometimes so this is fallback
+-                    fallback = True
+                     vol['real_dev'] = ""
+ 
+                 if label != 'none':
+@@ -140,7 +138,7 @@ class Btrfs(object):
+                 dev['pool_name'] = pool_name
+ 
+                 # Fallback in case we could not find real_dev by uuid
+-                if fallback and 'mount' not in pool:
++                if 'mount' not in pool:
+                     if dev['dev_name'] in self.mounts:
+                         pool['mount'] = self.mounts[dev['dev_name']]['mp']
+                         vol['real_dev'] = dev['dev_name']
+@@ -153,6 +151,7 @@ class Btrfs(object):
+                             found = re.findall(r'{0}:/.*'.format(dev['dev_name']), dev_i)
+                             if found:
+                                 pool['mount'] = self.mounts[found[0]]['mp']
++                                vol['real_dev'] = found[0].split(':')[0]
+                                 break
+ 
+                 dev_used = get_real_number(array[5])
+@@ -313,26 +312,18 @@ class Btrfs(object):
+         self._pool[pool['pool_name']] = pool
+         self._vol[vol['dev_name']] = vol
+ 
+-    def __iter__(self):
+-        for item in sorted(self.data.iterkeys()):
+-            yield item
+-
+-    def __getitem__(self, key):
+-        if key in self.data.iterkeys():
+-            return self.data[key]
+-
+     def _remove_filesystem(self, name):
+         if 'mount' in self._vol[name]:
+             if self.problem.check(self.problem.FS_MOUNTED,
+                                   [name, self._vol[name]['mount']]):
+-                misc.do_umount(self._vol[name]['mount'])
++                misc.do_umount(self._vol[name]['real_dev'], all_targets=True)
+         for dev in self._dev.itervalues():
+             if dev['pool_name'] != name:
+                 continue
+             misc.wipefs(dev['dev_name'], 'btrfs')
+ 
+ 
+-class BtrfsVolume(Btrfs):
++class BtrfsVolume(Btrfs, template.BackendVolume):
+ 
+     def __init__(self, *args, **kwargs):
+         super(BtrfsVolume, self).__init__(*args, **kwargs)
+@@ -374,11 +365,18 @@ class BtrfsVolume(Btrfs):
+         else:
+             self._remove_filesystem(vol)
+ 
++    def check(self, vol):
++        vol = self.data[vol]
++        return self.run_btrfs(['check', vol['real_dev']])[0]
++
+     def resize(self, vol, size, resize_fs=True):
+         vol = self.data[vol]
+         if 'mount' not in vol:
+             tmp = misc.temp_mount("UUID={0}".format(vol['uuid']))
+             vol['mount'] = tmp
++        if 'subvolume' in vol and vol['subvolume'] is True:
++            self.problem.check(self.problem.NOT_SUPPORTED,
++                               'Resizing btrfs subvolume')
+         command = ['filesystem', 'resize', str(int(size)) + "K", vol['mount']]
+         self.run_btrfs(command)
+ 
+@@ -402,7 +400,7 @@ class BtrfsVolume(Btrfs):
+         self.run_btrfs(command)
+ 
+ 
+-class BtrfsDev(Btrfs):
++class BtrfsDev(Btrfs, template.BackendDevice):
+ 
+     def __init__(self, *args, **kwargs):
+         super(BtrfsDev, self).__init__(*args, **kwargs)
+@@ -416,7 +414,7 @@ class BtrfsDev(Btrfs):
+                         "achieve by removing {0}".format(devices))
+ 
+ 
+-class BtrfsPool(Btrfs):
++class BtrfsPool(Btrfs, template.BackendPool):
+ 
+     def __init__(self, *args, **kwargs):
+         super(BtrfsPool, self).__init__(*args, **kwargs)
+@@ -425,7 +423,22 @@ class BtrfsPool(Btrfs):
+         else:
+             self.data = self._pool
+ 
+-    def _create_filesystem(self, pool, name, devs, size=None, raid=None):
++    def _can_btrfs_force(self):
++        """
++        This is just ridiculous. Unfortunately btrfs tools usually change
++        behaviour and options without bumping version number. So we have
++        to check whether btrfs allows to 'force' file system creation.
++        """
++        command=['mkfs.btrfs', '-f']
++        output = misc.run(command, can_fail=True)[1]
++        found = re.search('invalid option', output)
++        if found:
++            return False
++        else:
++            return True
++
++    def _create_filesystem(self, pool, name, devs, size=None, options=None):
++        options = options or {}
+         if not devs:
+             raise Exception("To create btrfs volume, some devices must be " +
+                             "provided")
+@@ -434,12 +447,12 @@ class BtrfsPool(Btrfs):
+             self.problem.check(self.problem.TOOL_MISSING, 'mkfs.btrfs')
+         command = ['mkfs.btrfs', '-L', name]
+ 
+-        if raid:
+-            if raid['level'] == '0':
++        if 'raid' in options:
++            if options['raid'] == '0':
+                 command.extend(['-m', 'raid0', '-d', 'raid0'])
+-            elif raid['level'] == '1':
++            elif options['raid'] == '1':
+                 command.extend(['-m', 'raid1', '-d', 'raid1'])
+-            elif raid['level'] == '10':
++            elif options['raid'] == '10':
+                 command.extend(['-m', 'raid10', '-d', 'raid10'])
+             else:
+                 raise Exception("Btrfs backed currently does not support " +
+@@ -455,7 +468,8 @@ class BtrfsPool(Btrfs):
+         # have tried to remove the device from the respective pool already.
+         # So at this point there should not be any useful signatures to
+         # speak of. However as I mentioned btrfs is broken, so force it.
+-        command.extend(['-f'])
++        if self._can_btrfs_force():
++            command.extend(['-f'])
+         command.extend(devs)
+         misc.run(command, stdout=True)
+         misc.send_udev_event(devs[0], "change")
+@@ -507,10 +521,11 @@ class BtrfsPool(Btrfs):
+         self._remove_filesystem(pool)
+ 
+     def create(self, pool, size=None, name=None, devs=None,
+-               raid=None):
++               options=None):
++        options = options or {}
+         if pool in self._pool:
+             vol = None
+-            if size or raid:
++            if size or 'raid' in options:
+                 self.problem.warn("Only name, volume name and pool name " +
+                                   "can be specified when creating btrfs " +
+                                   "subvolume, the rest will be ignored")
+@@ -535,7 +550,7 @@ class BtrfsPool(Btrfs):
+             if name:
+                 self.problem.warn("Creating new pool. Argument (--name " +
+                                   "{0}) will be ignored!".format(name))
+-            vol = self._create_filesystem(pool, pool, devs, size, raid)
++            vol = self._create_filesystem(pool, pool, devs, size, options)
+         return vol
+ 
+ 
+diff --git a/ssmlib/backends/crypt.py b/ssmlib/backends/crypt.py
+index 3c44f58..4aad266 100644
+--- a/ssmlib/backends/crypt.py
++++ b/ssmlib/backends/crypt.py
+@@ -19,36 +19,147 @@
+ 
+ import re
+ import os
++import stat
+ from ssmlib import misc
+ from ssmlib import problem
++from ssmlib.backends import template
+ 
+ __all__ = ["DmCryptVolume"]
+ 
++SUPPORTED_CRYPT = ['luks', 'plain']
++CRYPT_SIGNATURES = ['crypto_LUKS']
++CRYPT_DEFAULT_EXTENSION = "luks"
++
+ try:
+     SSM_CRYPT_DEFAULT_POOL = os.environ['SSM_CRYPT_DEFAULT_POOL']
+ except KeyError:
+     SSM_CRYPT_DEFAULT_POOL = "crypt_pool"
+ 
+ try:
+-    DM_DEV_DIR = os.environ['DM_DEV_DIR']
++    SSM_CRYPT_DEFAULT_VOL_PREFIX = os.environ['SSM_CRYPT_DEFAULT_VOL_PREFIX']
+ except KeyError:
+-    DM_DEV_DIR = "/dev"
+-
+-
+-class DmCryptVolume(object):
+-
+-    def __init__(self, options, data=None):
++    SSM_CRYPT_DEFAULT_VOL_PREFIX = "encrypted"
++
++# cryptsetup against my expectations does not take into account
++# DM_DEV_DIR so set it to /dev pernamently for now.
++#try:
++#    DM_DEV_DIR = os.environ['DM_DEV_DIR']
++#except KeyError:
++#    DM_DEV_DIR = "/dev"
++DM_DEV_DIR = "/dev"
++MAX_DEVS = 999
++
++def get_cryptsetup_version():
++    try:
++        output = misc.run(['cryptsetup', '--version'], can_fail=True)[1]
++        version = map(int, output.strip().split()[-1].split('.', 3))
++    except (OSError, AttributeError):
++        version = [0, 0, 0]
++    return version
++
++CRYPTSETUP_VERSION = get_cryptsetup_version()
++
++class DmObject(template.Backend):
++    def __init__(self, *args, **kwargs):
++        super(DmObject, self).__init__(*args, **kwargs)
+         self.type = 'crypt'
+-        self.data = data or {}
+-        self.output = None
+-        self.options = options
+         self.mounts = misc.get_mounts('{0}/mapper'.format(DM_DEV_DIR))
+         self.default_pool_name = SSM_CRYPT_DEFAULT_POOL
+-        self.problem = problem.ProblemSet(options)
+ 
+         if not misc.check_binary('dmsetup') or \
+            not misc.check_binary('cryptsetup'):
+             return
++
++    def run_cryptsetup(self, command, stdout=True):
++        if not misc.check_binary('cryptsetup'):
++            self.problem.check(self.problem.TOOL_MISSING, 'cryptsetup')
++        command.insert(0, "cryptsetup")
++        return misc.run(command, stdout=stdout)
++
++
++class DmCryptPool(DmObject, template.BackendPool):
++    def __init__(self, *args, **kwargs):
++        super(DmCryptPool, self).__init__(*args, **kwargs)
++        '''
++        pool = {'pool_name': self.default_pool_name,
++                'type': 'crypt',
++                'dev_count': '0',
++                'pool_free': '0',
++                'pool_used': '0',
++                'pool_size': '0',
++                'hide': True}
++        self.data[self.default_pool_name] = pool
++        '''
++
++
++    def create(self, pool, size=None, name=None, devs=None,
++               options=None):
++
++        if CRYPTSETUP_VERSION < [1, 6, 0]:
++            msg = "You need at least cryptsetup version " + \
++                  "{0}. Creating encrypted volumes".format('1.6.0')
++            self.problem.check(self.problem.NOT_SUPPORTED, msg)
++        options = options or {}
++        if 'encrypt' in options:
++            if options['encrypt'] is True:
++                options['encrypt'] = CRYPT_DEFAULT_EXTENSION
++            if options['encrypt'] not in SUPPORTED_CRYPT:
++                self.problem.not_supported("Extension "
++                                           "\'{0}\'".format(options['encrypt']))
++        else:
++            # So the options is not crypt specific. It's ok, just use defaults
++            options['encrypt'] = CRYPT_DEFAULT_EXTENSION
++
++        if len(devs) > 1:
++            self.problem.not_supported("Device concatenation" +
++                                       " with \"crypt\" backend")
++        if not name:
++            name = self._generate_devname()
++        device = devs[0]
++        args = []
++        command = []
++        if self.options.verbose:
++            args.append('-v')
++        else:
++            args.append('-q')
++        if options['encrypt'] == "luks":
++            command.extend(args)
++            if self.options.force:
++                command.append('--force-password')
++            if self.options.interactive:
++                command.append('-y')
++            command.extend(['luksFormat', device])
++            self.run_cryptsetup(command)
++        command = []
++        command.extend(args)
++        command.append('open')
++        if size:
++            # Size is in KiB but cryptsetup accepts it in 512 byte blocks
++            size = str(float(size) * 2).split('.')[0]
++            command.extend(['--size', size])
++        command.extend(['--type', options['encrypt'], device, name])
++        self.run_cryptsetup(command)
++        return "{0}/mapper/{1}".format(DM_DEV_DIR, name)
++
++    def _generate_devname(self):
++        for i in range(1, MAX_DEVS):
++            name = "{0}{1:0>{align}}".format(SSM_CRYPT_DEFAULT_VOL_PREFIX, i,
++                                            align=len(str(MAX_DEVS)))
++            path = "{0}/mapper/{1}".format(DM_DEV_DIR, name)
++            try:
++                if stat.S_ISBLK(os.stat(path).st_mode):
++                    continue
++            except OSError:
++                pass
++            return name
++        self.problem.error("Can not find proper device name. Specify one!")
++
++
++class DmCryptVolume(DmObject, template.BackendVolume):
++
++    def __init__(self, *args, **kwargs):
++        super(DmCryptVolume, self).__init__(*args, **kwargs)
++
+         command = ['dmsetup', 'table']
+         self.output = misc.run(command, stderr=False)[1]
+         for line in self.output.split("\n"):
+@@ -63,9 +174,9 @@ class DmCryptVolume(object):
+             devname = re.sub(":$", "",
+                              "{0}/mapper/{1}".format(DM_DEV_DIR, array[0]))
+             dm['dm_name'] = devname
+-            dm['pool_name'] = 'dm-crypt'
+-            dm['dev_name'] = misc.get_real_device(devname)
+-            dm['real_dev'] = dm['dev_name']
++            dm['pool_name'] = self.default_pool_name
++            dm['dev_name'] = devname
++            dm['real_dev'] = misc.get_real_device(devname)
+             if dm['real_dev'] in self.mounts:
+                 dm['mount'] = self.mounts[dm['real_dev']]['mp']
+ 
+@@ -78,12 +189,6 @@ class DmCryptVolume(object):
+             self._parse_cryptsetup(command, dm)
+             self.data[dm['dev_name']] = dm
+ 
+-    def run_cryptsetup(self, command, stdout=True):
+-        if not self._binary:
+-            self.problem.check(self.problem.TOOL_MISSING, 'cryptsetup')
+-        command.insert(0, "cryptsetup")
+-        return misc.run(command, stdout=stdout)
+-
+     def _parse_cryptsetup(self, cmd, dm):
+         self.output = misc.run(cmd, stderr=False)[1]
+         for line in self.output.split("\n"):
+@@ -97,19 +202,52 @@ class DmCryptVolume(object):
+             elif array[0].strip() == 'device:':
+                 dm['crypt_device'] = array[1]
+ 
++    def __getitem__(self, name):
++        if name in self.data.iterkeys():
++            return self.data[name]
++        device = name
++        if not os.path.exists(name):
++            device = DM_DEV_DIR + "/" + name
++            if not os.path.exists(device):
++                return None
++        device = misc.get_real_device(device)
++        if device in self.data.iterkeys():
++            return self.data[device]
++        return None
++
+     def remove(self, dm):
++        vol = self[dm]
++        if 'mount' in vol:
++            if self.problem.check(self.problem.FS_MOUNTED,
++                                  [vol['dev_name'], vol['mount']]):
++                misc.do_umount(vol['mount'])
+         command = ['remove', dm]
+         self.run_cryptsetup(command)
++        misc.wipefs(vol['crypt_device'], CRYPT_SIGNATURES)
+ 
+     def resize(self, dm, size, resize_fs=True):
+         size = str(int(size) * 2)
+         command = ['resize', '--size', size, dm]
+         self.run_cryptsetup(command)
+ 
+-    def __iter__(self):
+-        for item in sorted(self.data.iterkeys()):
+-            yield item
+ 
+-    def __getitem__(self, key):
+-        if key in self.data.iterkeys():
+-            return self.data[key]
++class DmCryptDevice(DmObject, template.BackendDevice):
++
++    def __init__(self, *args, **kwargs):
++        super(DmCryptDevice, self).__init__(*args, **kwargs)
++
++        for line in misc.get_partitions():
++            device = {}
++            devname = "/dev/" + line[3]
++            signature = misc.get_signature(devname)
++            if misc.get_signature(devname) in CRYPT_SIGNATURES:
++                device['hide'] = False
++                device['dev_name'] = devname
++                device['pool_name'] = self.default_pool_name
++                device['dev_free'] = '0'
++                device['dev_used'] = str(misc.get_device_size(devname))
++                self.data[devname] = device
++
++
++    def remove(self, devices):
++        misc.wipefs(device, CRYPT_SIGNATURES)
+diff --git a/ssmlib/backends/lvm.py b/ssmlib/backends/lvm.py
+index 9cc8079..955c705 100644
+--- a/ssmlib/backends/lvm.py
++++ b/ssmlib/backends/lvm.py
+@@ -17,11 +17,13 @@
+ 
+ # lvm module for System Storage Manager
+ 
++import re
+ import os
+ import stat
+ import datetime
+ from ssmlib import misc
+ from ssmlib import problem
++from ssmlib.backends import template
+ 
+ __all__ = ["PvsInfo", "VgsInfo", "LvsInfo"]
+ 
+@@ -37,17 +39,32 @@ except KeyError:
+ MAX_LVS = 999
+ 
+ 
+-class LvmInfo(object):
++def get_lvm_version():
++    try:
++        output = misc.run(['lvm', 'version'], can_fail=True)[1]
++        output = output.strip().split("\n")
++        pattern = re.compile("LVM version:")
++        for line in output:
++            if pattern.match(line.strip()):
++                match = " ".join(line.split())
++                tmp = re.search('(?<=LVM version: )\d+\.\d+\.\d+',
++                                    match).group(0)
++                version = map(int, tmp.split(".", 3))
++    except (OSError, AttributeError):
++        version = [0, 0, 0]
++    return version
+ 
+-    def __init__(self, options, data=None):
++LVM_VERSION = get_lvm_version()
++
++
++class LvmInfo(template.Backend):
++
++    def __init__(self, *args, **kwargs):
++        super(LvmInfo, self).__init__(*args, **kwargs)
+         self.type = 'lvm'
+-        self.data = data or {}
+         self.attrs = []
+-        self.output = None
+-        self.options = options
+         self.binary = misc.check_binary('lvm')
+         self.default_pool_name = SSM_LVM_DEFAULT_POOL
+-        self.problem = problem.ProblemSet(options)
+ 
+     def run_lvm(self, command, noforce=False):
+         if not self.binary:
+@@ -59,9 +76,6 @@ class LvmInfo(object):
+         command.insert(0, "lvm")
+         misc.run(command, stdout=True)
+ 
+-    def __str__(self):
+-        return self.output
+-
+     def _data_index(self, row):
+         return row.values()[len(row.values()) - 1]
+ 
+@@ -86,16 +100,16 @@ class LvmInfo(object):
+     def _fill_aditional_info(self, row):
+         pass
+ 
+-    def __iter__(self):
+-        for item in sorted(self.data.iterkeys()):
+-            yield item
++    def supported_since(self, version, string):
++        if version > LVM_VERSION:
++            msg = "ERROR: You need at least lvm version " + \
++                  "{0}. Feature \"{1}\"".format(".".join(map(str, version)),
++                                                string)
++            self.problem.check(self.problem.NOT_SUPPORTED, msg)
++        return True
+ 
+-    def __getitem__(self, key):
+-        if key in self.data.iterkeys():
+-            return self.data[key]
+ 
+-
+-class VgsInfo(LvmInfo):
++class VgsInfo(LvmInfo, template.BackendPool):
+ 
+     def __init__(self, *args, **kwargs):
+         super(VgsInfo, self).__init__(*args, **kwargs)
+@@ -149,40 +163,85 @@ class VgsInfo(LvmInfo):
+         self.run_lvm(command)
+ 
+     def create(self, vg, size=None, name=None, devs=None,
+-               raid=None):
++               options=None):
++        options = options or {}
+         devices = devs or []
+         command = ['lvcreate', vg]
+-        if size:
+-            command.extend(['-L', size + 'K'])
+-        else:
+-            if len(devices) > 0:
+-                size = "100%PVS"
+-            else:
+-                size = "100%FREE"
+-            command.extend(['-l', size])
+ 
+         if name:
+             lvname = name
+         else:
+             lvname = self._generate_lvname(vg)
+ 
++        if size:
++            command.extend(['-L', size + 'K'])
++        else:
++            if len(devices) > 0:
++                tmp = "100%PVS"
++            else:
++                tmp = "100%FREE"
++            command.extend(['-l', tmp])
++
+         command.extend(['-n', lvname.rpartition("/")[-1]])
+ 
+-        if raid:
+-            if raid['level'] == '0':
+-                if not raid['stripesize']:
+-                    raid['stripesize'] = "64"
+-                if not raid['stripes'] and len(devices) > 0:
+-                    raid['stripes'] = str(len(devices))
+-                if not raid['stripes']:
++        if 'raid' in options:
++            if options['raid'] == '0':
++                if not options['stripesize']:
++                    options['stripesize'] = "64"
++                if not options['stripes'] and len(devices) > 0:
++                    options['stripes'] = str(len(devices))
++                if not options['stripes']:
+                     self.problem.error("Devices or number of " +
+                                        "stripes should be defined!")
+-                if raid['stripesize']:
+-                    command.extend(['-I', raid['stripesize']])
+-                if raid['stripes']:
+-                    command.extend(['-i', raid['stripes']])
++                if options['stripesize']:
++                    command.extend(['-I', options['stripesize']])
++                if options['stripes']:
++                    command.extend(['-i', options['stripes']])
++            elif options['raid'] == '1' and \
++                 self.supported_since([2,2,89],"raid1"):
++                if options['stripesize'] or options['stripes']:
++                    msg = "ERROR: Specifying stripe size or number of " + \
++                          "stripes when creating raid1 volume with lvm backend"
++                    self.problem.check(self.problem.NOT_SUPPORTED, msg)
++                # Unfortunately 50%PVS does not work here because it does not
++                # take in account metadata needed to create mirrored volume.
++                # Using 49%PVS is not viable either because it will cut off
++                # a lot of potential storage. So we'll require to specify
++                # size in this case.
++                if not size:
++                    msg = "ERROR: Creating raid1 with lvm backend without " + \
++                          "specifying size"
++                    self.problem.check(self.problem.NOT_SUPPORTED, msg)
++                command.extend(["--type", "raid1"])
++            elif options['raid'] == '10' and \
++                 self.supported_since([2,2,98],"raid10"):
++                if not options['stripesize']:
++                    options['stripesize'] = "64"
++                if not options['stripes'] and len(devices) > 0:
++                    if len(devices) < 4:
++                        self.problem.error("Number of devices should be at " +
++                                           "least 4 in raid 10 setup")
++                    if len(devices) % 2 != 0:
++                        self.problem.error("Number of devices should be " +
++                                           "even in raid 10 setup")
++                    options['stripes'] = str(len(devices)/2)
++                if not options['stripes']:
++                    self.problem.error("Devices or number of " +
++                                       "stripes should be defined")
++                if int(options['stripes']) < 2:
++                    self.problem.error("Number of stripes should be at " +
++                                       "least 2 in raid 10 setup")
++                if options['stripesize']:
++                    command.extend(['-I', options['stripesize']])
++                if options['stripes']:
++                    command.extend(['-i', options['stripes']])
++                if not size:
++                    msg = "ERROR: Creating raid10 with lvm backend without " + \
++                          "specifying size"
++                    self.problem.check(self.problem.NOT_SUPPORTED, msg)
++                command.extend(["--type", "raid10"])
+             else:
+-                self.problem.not_supported("RAID level {0}".format(raid['level']) +
++                self.problem.not_supported("RAID level {0}".format(options['raid']) +
+                                            " with \"lvm\" backend")
+ 
+         command.extend(devices)
+@@ -190,7 +249,7 @@ class VgsInfo(LvmInfo):
+         return "{0}/{1}/{2}".format(DM_DEV_DIR, vg, lvname)
+ 
+ 
+-class PvsInfo(LvmInfo):
++class PvsInfo(LvmInfo, template.BackendDevice):
+ 
+     def __init__(self, *args, **kwargs):
+         super(PvsInfo, self).__init__(*args, **kwargs)
+@@ -221,7 +280,7 @@ class PvsInfo(LvmInfo):
+         self.run_lvm(command)
+ 
+ 
+-class LvsInfo(LvmInfo):
++class LvsInfo(LvmInfo, template.BackendVolume):
+ 
+     def __init__(self, *args, **kwargs):
+         super(LvsInfo, self).__init__(*args, **kwargs)
+diff --git a/ssmlib/backends/md.py b/ssmlib/backends/md.py
+index 9e902d7..f33243c 100644
+--- a/ssmlib/backends/md.py
++++ b/ssmlib/backends/md.py
+@@ -23,6 +23,7 @@ import socket
+ import datetime
+ from ssmlib import misc
+ from ssmlib import problem
++from ssmlib.backends import template
+ 
+ try:
+     SSM_DM_DEFAULT_POOL = os.environ['SSM_DM_DEFAULT_POOL']
+@@ -32,15 +33,14 @@ except KeyError:
+ MDADM = "mdadm"
+ 
+ 
+-class MdRaid(object):
++class MdRaid(template.Backend):
+ 
+-    def __init__(self, options, data=None):
++    def __init__(self, *args, **kwargs):
++        super(MdRaid, self).__init__(*args, **kwargs)
+         self.type = 'dm'
+-        self.data = data or {}
+         self._vol = {}
+         self._pool = {}
+         self._dev = {}
+-        self.options = options
+         self.hostname = socket.gethostname()
+         self._binary = misc.check_binary(MDADM)
+         self.default_pool_name = SSM_DM_DEFAULT_POOL
+@@ -50,7 +50,6 @@ class MdRaid(object):
+         if not self._binary:
+             return
+ 
+-        self.problem = problem.ProblemSet(options)
+         self.mounts = misc.get_mounts('/dev/md')
+ 
+         mdnumber = misc.get_dmnumber("md")
+@@ -109,16 +108,8 @@ class MdRaid(object):
+         command.insert(0, MDADM)
+         return misc.run(command, stdout=True)
+ 
+-    def __iter__(self):
+-        for item in sorted(self.data.iterkeys()):
+-            yield item
+-
+-    def __getitem__(self, key):
+-        if key in self.data.iterkeys():
+-            return self.data[key]
+-
+ 
+-class MdRaidVolume(MdRaid):
++class MdRaidVolume(MdRaid, template.BackendVolume):
+ 
+     def __init__(self, *args, **kwargs):
+         super(MdRaidVolume, self).__init__(*args, **kwargs)
+@@ -135,7 +126,7 @@ class MdRaidVolume(MdRaid):
+         self.problem.not_supported("Resizing with \"md\" backend")
+ 
+ 
+-class MdRaidDevice(MdRaid):
++class MdRaidDevice(MdRaid, template.BackendDevice):
+ 
+     def __init__(self, *args, **kwargs):
+         super(MdRaidDevice, self).__init__(*args, **kwargs)
+diff --git a/ssmlib/backends/template.py b/ssmlib/backends/template.py
+new file mode 100644
+index 0000000..94f4b40
+--- /dev/null
++++ b/ssmlib/backends/template.py
+@@ -0,0 +1,95 @@
++#!/usr/bin/env python
++#
++# (C)2013 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
++#
++# This program is free software: you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation, either version 2 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++# template module for System Storage Manager contains template classes
++# to use when creating new backend
++
++import os
++from ssmlib import misc
++from ssmlib import problem
++
++__all__ = ["Backend", "BackendPool", "BackendVolume", "BackendDevice"]
++
++try:
++    SSM_TEMPLATE_DEFAULT_POOL = os.environ['SSM_TEMPLATE_DEFAULT_POOL']
++except KeyError:
++    SSM_TEMPLATE_DEFAULT_POOL = "template_pool"
++
++
++class Backend(object):
++    def __init__(self, options, data=None):
++        self.type = 'template'
++        self.data = data or {}
++        self.options = options
++        self.output = None
++        self.default_pool_name = SSM_TEMPLATE_DEFAULT_POOL
++        self.problem = problem.ProblemSet(options)
++
++    def __str__(self):
++        return repr(self.data)
++
++    def __iter__(self):
++        for item in sorted(self.data.iterkeys()):
++            yield item
++
++    def __getitem__(self, key):
++        if key in self.data.iterkeys():
++            return self.data[key]
++
++
++class BackendPool(Backend):
++    def __init__(self, *args, **kwargs):
++        super(BackendPool, self).__init__(*args, **kwargs)
++
++    def reduce(self, pool, device):
++        self.problem.check(self.problem.NOT_SUPPORTED,
++                        "Reducing pool with {0} backend".format(self.type))
++
++    def new(self, pool, devices):
++        self.problem.check(self.problem.NOT_SUPPORTED,
++                        "Creating new pool with {0} backend".format(self.type))
++
++    def extend(self, pool, devices):
++        self.problem.check(self.problem.NOT_SUPPORTED,
++                        "Extending pool with {0} backend".format(self.type))
++
++    def remove(self, pool):
++        self.problem.check(self.problem.NOT_SUPPORTED,
++                        "Removing pool with {0} backend".format(self.type))
++
++    def create(self, pool, size=None, name=None, devs=None,
++               options=None):
++        self.problem.check(self.problem.NOT_IMPLEMENTED,
++                        "Creating volume with {0} backend".format(self.type))
++
++
++class BackendVolume(Backend):
++    def __init__(self, *args, **kwargs):
++        super(BackendVolume, self).__init__(*args, **kwargs)
++
++    def remove(self, volume):
++        self.problem.check(self.problem.NOT_SUPPORTED,
++                        "Removing volume with {0} backend".format(self.type))
++
++
++class BackendDevice(Backend):
++    def __init__(self, *args, **kwargs):
++        super(BackendDevice, self).__init__(*args, **kwargs)
++
++    def remove(self, devices):
++        self.problem.check(self.problem.NOT_SUPPORTED,
++                        "Removing device with {0} backend".format(self.type))
+diff --git a/ssmlib/main.py b/ssmlib/main.py
+index ef9232d..7aab312 100644
+--- a/ssmlib/main.py
++++ b/ssmlib/main.py
+@@ -30,7 +30,7 @@ from ssmlib.backends import lvm, crypt, btrfs, md
+ 
+ EXTN = ['ext2', 'ext3', 'ext4']
+ SUPPORTED_FS = ['xfs', 'btrfs'] + EXTN
+-SUPPORTED_BACKENDS = ['lvm', 'btrfs']
++SUPPORTED_BACKENDS = ['lvm', 'btrfs', 'crypt']
+ SUPPORTED_RAID = ['0', '1', '10']
+ os.environ['LC_NUMERIC'] = "C"
+ 
+@@ -222,7 +222,7 @@ class FsInfo(object):
+             raise Exception("File system on {0} is not ".format(self.device) +
+                             "clean, I will not attempt to resize it. Please," +
+                             "fix the problem first.")
+-        misc.run(command, stdout=True)
++        return misc.run(command, stdout=True)[0]
+ 
+     def xfs_get_info(self, dev):
+         command = ["xfs_db", "-r", "-c", "sb", "-c", "print", dev]
+@@ -341,6 +341,11 @@ class DeviceInfo(object):
+                 dev['mount'] = "PARTITIONED"
+                 dev['type'] = 'disk'
+ 
++    def remove(self, device):
++        PR.error("It is not clear what do you want " +
++                 "to achieve by removing " +
++                 "{0}!".format(device))
++
+     def set_globals(self, options):
+         self.options = options
+ 
+@@ -410,6 +415,9 @@ class Item(object):
+         else:
+             name = self.data['dev_name']
+         fs = FsInfo(name, self.obj.options)
++        if 'fs_type' not in fs.data:
++            # Not a file system
++            return
+         try:
+             fs.mounted = self.data['mount']
+         except KeyError:
+@@ -639,6 +647,11 @@ class Pool(Storage):
+         except RuntimeError, err:
+             PR.warn(err)
+             PR.warn("Can not get information about btrfs pools")
++        try:
++            self._data['crypt'] = crypt.DmCryptPool(options=self.options)
++        except RuntimeError, err:
++            PR.warn(err)
++            PR.warn("Can not get information about crypt pools")
+ 
+         backend = self.get_backend(SSM_DEFAULT_BACKEND)
+         self.default = Item(backend, backend.default_pool_name)
+@@ -682,10 +695,18 @@ class Devices(Storage):
+             PR.warn("Can not get information about MD devices")
+             my_md = Struct()
+             my_md.data = {}
++        try:
++            my_crypt = crypt.DmCryptDevice(options=self.options)
++        except RuntimeError, err:
++            PR.warn(err)
++            PR.warn("Can not get information about crypt devices")
++            my_crypt = Struct()
++            my_crypt.data = {}
+ 
+         self._data['dev'] = DeviceInfo(data=dict(my_lvm.data.items() +
+                                                  my_btrfs.data.items() +
+-                                                 my_md.data.items()),
++                                                 my_md.data.items() +
++                                                 my_crypt.data.items()),
+                                        options=self.options)
+         self.header = ['Device', 'Free', 'Used',
+                        'Total', 'Pool', 'Mount point']
+@@ -862,30 +883,41 @@ class StorageHandle(object):
+     def check(self, args):
+         """
+         Check the file system on the volume. FsInfo is used for that purpose,
+-        except for btrfs.
++        except for btrfs. Or check the volume itself if backend supports it.
+         """
+         err = 0
+         checked = 0
+-        for fs in args.device:
+-            print "Checking {0} file system on \'{1}\':".format(fs.fstype,
+-                                                                fs.device),
+-            if fs.mounted:
+-                print
++        for dev in args.device:
++            if 'mount' in dev:
+                 try:
+-                    if PR.check(PR.FS_MOUNTED, [fs.device, fs.mounted]):
+-                        misc.do_umount(fs.device)
++                    if PR.check(PR.FS_MOUNTED, [dev['real_dev'], dev['mount']]):
++                        misc.do_umount(dev['real_dev'])
+                 except problem.FsMounted:
+                     PR.warn("Unable to check file system " +
+-                            "\'{0}\' on volume \'{1}\'".format(fs.fstype,
+-                                                               fs.device))
++                            "\'{0}\' on volume \'{1}\'".format(dev['fs_type'],
++                                                               dev['real_dev']))
+                     continue
+-            ret = fs.fsck()
+-            checked += 1
+-            err += ret
+-            if ret:
+-                print "FAIL"
+-            else:
+-                print "OK"
++
++            # Does backend support check ?
++            try:
++                if getattr(dev, "check"):
++                    print "Checking volume \'{0}\'.".format(dev['real_dev'])
++                    ret = dev.check()
++                    checked += 1
++                    err += ret
++                    if ret:
++                        continue
++            except AttributeError:
++                pass
++
++            # Do we have a file system to check ?
++            if 'fs_info' in dev:
++                fs = dev['fs_info']
++                print "Checking {0} file system on \'{1}\'.".format(fs.fstype,
++                                                                    fs.device)
++                ret = fs.fsck()
++                checked += 1
++                err += ret
+         if checked == 0:
+             PR.error("Nothing was checked")
+         if err > 0:
+@@ -944,6 +976,14 @@ class StorageHandle(object):
+             if not self.dev[dev] or 'pool_name' not in self.dev[dev]:
+                 # Check signature of existing file system on the device
+                 # and ask user whether to use it or not.
++                if self.dev[dev] and 'mount' in self.dev[dev]:
++                    try:
++                        if PR.check(PR.FS_MOUNTED,
++                                    [dev, self.dev[dev]['mount']]):
++                            misc.do_umount(dev)
++                    except problem.FsMounted:
++                        args.device.remove(dev)
++                        continue
+                 signature = misc.get_fs_type(dev)
+                 if signature and \
+                    not PR.check(PR.EXISTING_FILESYSTEM, [signature, dev]):
+@@ -977,6 +1017,10 @@ class StorageHandle(object):
+         args.pool = self.pool[args.volume['pool_name']]
+         vol_size = float(args.volume['vol_size'])
+ 
++        if args.pool.type == 'btrfs':
++            msg = "Resizing btrfs volume is not supported"
++            raise problem.NotSupported(msg)
++
+         if not args.size:
+             new_size = vol_size
+         elif args.size[0] == '+':
+@@ -987,7 +1031,7 @@ class StorageHandle(object):
+             new_size = float(args.size)
+         size_change = new_size - vol_size
+ 
+-        fs = True if 'fs_type' in args.volume else False
++        fs = True if 'fs_info' in args.volume else False
+ 
+         if new_size <= 0:
+             PR.error("New volume size \'{0} KB\' is too small".format(new_size))
+@@ -996,28 +1040,39 @@ class StorageHandle(object):
+             # Try to grow the file system, since there is nothing to
+             # do with the volume itself.
+             if fs:
+-                args.volume['fs_info'].resize()
++                ret = args.volume['fs_info'].resize()
++                if ret:
++                    PR.error("File system on {0} can not be resized".format(args.volume.name))
+             else:
+                 PR.check(PR.RESIZE_ALREADY_MATCH, [args.volume.name, new_size])
+             return
+ 
+         # Backend might not support pooling
+         if args.pool is None:
+-            pool_free = None
++            pool_free = 0.0
+             pool_name = "none"
+         else:
+             pool_free = float(args.pool['pool_free'])
+             pool_name = args.pool.name
+ 
+-        have_size, devices = self._filter_device_list(args,
+-                                                      pool_free,
+-                                                      new_size)
++        # No need to do anything with provided devices since
++        # we do have enough space to cover the resize
++        if (pool_free < size_change):
++            have_size, devices = self._filter_device_list(args,
++                                                          pool_free,
++                                                          new_size)
++        else:
++            have_size = pool_free
+ 
+         if have_size < size_change:
+             PR.check(PR.RESIZE_NOT_ENOUGH_SPACE,
+                      [pool_name, args.volume.name, new_size])
+-        elif len(args.device) > 0 and new_size > vol_size:
+-            self.add(args, True)
++        elif len(args.device) > 0 and size_change > pool_free:
++            try:
++                self.add(args, True)
++            except problem.NotSupported:
++                # Some backends might not support pooling at all.
++                pass
+ 
+         if new_size != vol_size:
+             args.volume.resize(new_size, fs)
+@@ -1028,9 +1083,30 @@ class StorageHandle(object):
+         provided as arguments. If the device is not in the selected pool, then
+         add() is called on the pool prior to create().
+         """
++
++        lvname = self.create_volume(args)
++
++        if args.encrypt and misc.is_bdevice(lvname) and \
++           SSM_DEFAULT_BACKEND != 'crypt':
++            crypt = self.pool.get_backend("crypt")
++            args.pool = Item(crypt, crypt.default_pool_name)
++            options = {'encrypt': args.encrypt}
++            lvname = args.pool.create(devs=[lvname],
++                                      size=None,
++                                      options=options,
++                                      name=args.name)
++
++        if args.fstype and args.pool.type != 'btrfs':
++            if self._create_fs(args.fstype, lvname) != 0:
++                self._mpoint = None
++        if self._mpoint:
++            self.reinit_vol()
++            self._do_mount(self.vol[lvname])
++
++    def create_volume(self, args):
+         # Get the size in kilobytes
+-        if args.size:
+-            args.size = misc.get_real_size(args.size)
++#        if args.size:
++#            args.size = misc.get_real_size(args.size)
+ 
+         if self._mpoint and not (args.fstype or args.pool.type == 'btrfs'):
+             if PR.check(PR.CREATE_MOUNT_NOFS, self._mpoint):
+@@ -1049,6 +1125,12 @@ class StorageHandle(object):
+         have_size, devices = self._filter_device_list(args, pool_free,
+                                                       args.size)
+ 
++        # When the pool does not exist and there is no device usable
++        # for creating the new pool, then there is no point of trying to
++        # create a volume, since it would fail in the backend anyway.
++        if not args.pool.exists() and len(devices) == 0:
++            PR.check(PR.NO_DEVICES, args.pool.name)
++
+         # Currently we do not allow setting subvolume size with btrfs. This
+         # should change in the future (quotas maybe) so the check should
+         # be removed or pushed to the backend itself.
+@@ -1058,12 +1140,6 @@ class StorageHandle(object):
+                         [have_size, args.pool.name]):
+                 args.size = None
+ 
+-        # When the pool does not exist and there is no device usable
+-        # for creating the new pool, then there is no point of trying to
+-        # create a volume, since it would fail in the backend anyway.
+-        if not args.pool.exists() and len(devices) == 0:
+-            PR.check(PR.NO_DEVICES, args.pool.name)
+-
+         if have_size == 0:
+             PR.error("Not enough space ({0} KB) to".format(have_size) +
+                      "to create volume")
+@@ -1080,32 +1156,52 @@ class StorageHandle(object):
+                          "must not exceed number of devices " +
+                          "({0})".format(tmp))
+ 
++        if args.raid:
++            # In raid we might has a requirement on a number of devices
++            # available as well as different requirements on the size
++            # available. We do not do any complicated math to figure out
++            # whether we really do have enough space on the devices which
++            # might differ in size. Let the respective backend tool deal
++            # with that, it's always ok to fail, but we might cover the
++            # most obvious cases here.
++            dev_count = len(args.device)
++            if args.pool.exists():
++                dev_count += int(args.pool['dev_count'])
++            if args.raid == '10' and args.stripes:
++                if args.stripes * 2 > dev_count:
++                    PR.error("Not enough devices ({0}) ".format(dev_count) +
++                             "for specified number of ".format(args.stripes) +
++                             "stripes ({0}). You need ".format(args.stripes) +
++                             "at least {0} devices".format(args.stripes * 2))
++            if args.raid == '1' and dev_count < 2:
++                PR.error("You need at least 2 devices to create " +
++                         "raid1 volume")
++
+         # If we want btrfs pool and it does not exist yet, we do not
+         # want to call add since it would create it. Note that when
+         # btrfs pool is created the new btrfs volume is created as well
+         # because it is actually the same thing
+         if len(args.device) > 0 and \
+            not (not args.pool.exists() and args.pool.type == 'btrfs'):
+-            self.add(args, True)
++            try:
++                self.add(args, True)
++            except problem.NotSupported:
++                # Some backends might not support pooling at all.
++                pass
+ 
++        options = {}
++        if args.encrypt:
++            options['encrypt'] = args.encrypt
+         if args.raid:
+-            raid = {'level': args.raid,
+-                    'stripesize': args.stripesize,
+-                    'stripes': args.stripes}
+-        else:
+-            raid = None
++            options['raid'] = args.raid
++            options['stripesize'] = args.stripesize
++            options['stripes'] = args.stripes
+ 
+         lvname = args.pool.create(devs=devices,
+                                   size=args.size,
+-                                  raid=raid,
++                                  options=options,
+                                   name=args.name)
+-
+-        if args.fstype and args.pool.type != 'btrfs':
+-            if self._create_fs(args.fstype, lvname) != 0:
+-                self._mpoint = None
+-        if self._mpoint:
+-            self.reinit_vol()
+-            self._do_mount(self.vol[lvname])
++        return lvname
+ 
+     def list(self, args):
+         """
+@@ -1150,11 +1246,20 @@ class StorageHandle(object):
+                 else:
+                     # Check signature of existing file system on the device
+                     # and as user whether to use it or not.
+-                    signature = misc.get_fs_type(dev)
+-                    if signature and \
+-                       not PR.check(PR.EXISTING_FILESYSTEM, [signature, dev]):
+-                        args.device.remove(dev)
+-                        continue
++                    if item and 'mount' in item:
++                        try:
++                            if PR.check(PR.FS_MOUNTED, [dev, item['mount']]):
++                                misc.do_umount(dev)
++                        except problem.FsMounted:
++                            args.device.remove(dev)
++                            continue
++                    else:
++                        signature = misc.get_fs_type(dev)
++                        if signature and \
++                           not PR.check(PR.EXISTING_FILESYSTEM,
++                                        [signature, dev]):
++                            args.device.remove(dev)
++                            continue
+ 
+         if args.pool.exists():
+             if len(args.device) > 0:
+@@ -1196,10 +1301,7 @@ class StorageHandle(object):
+                         pool.reduce(item.name)
+                         removed += 1
+                         continue
+-                    else:
+-                        PR.error("It is not clear what do you want " +
+-                                 "to achieve by removing " +
+-                                 "{0}!".format(item.name))
++
+                 item.remove()
+                 removed += 1
+             except (RuntimeError, problem.SsmError), ex:
+@@ -1222,7 +1324,8 @@ class StorageHandle(object):
+             snap_size = vol_size * 0.20
+             user_set_size = False
+         else:
+-            snap_size = float(misc.get_real_size(args.size))
++            snap_size = float(args.size)
++            #snap_size = float(misc.get_real_size(args.size))
+             user_set_size = True
+ 
+         if pool_free < snap_size:
+@@ -1249,17 +1352,34 @@ class StorageHandle(object):
+                      "{0} with options \'{1}\'".format(args.directory,
+                                                        args.options))
+ 
++    def can_check(self, device):
++        fs = self.is_fs(device)
++        if fs is False:
++            real = misc.get_real_device(device)
++            vol = self.vol[real]
++            err = "'{0}' is not valid volume to check.".format(device)
++            try:
++                if not getattr(vol, "check"):
++                    raise argparse.ArgumentTypeError(err)
++                else:
++                    return vol
++            except AttributeError:
++                raise argparse.ArgumentTypeError(err)
++        else:
++            return fs
++
++
+     def is_fs(self, device):
+         real = misc.get_real_device(device)
+ 
+         vol = self.vol[real]
+-        if vol and 'fs_type' in vol:
+-            return vol['fs_info']
++        if vol and 'fs_info' in vol:
++            return vol
+         dev = self.dev[real]
+-        if dev and 'fs_type' in dev:
+-            return dev['fs_info']
++        if dev and 'fs_info' in dev:
++            return dev
+         err = "'{0}' does not contain valid file system".format(real)
+-        raise argparse.ArgumentTypeError(err)
++        return False
+ 
+     def _find_device_record(self, path):
+         """
+@@ -1294,7 +1414,10 @@ class StorageHandle(object):
+         return self.get_bdevice(path)
+ 
+     def get_bdevice(self, path):
+-        path = is_bdevice(path)
++        path = misc.is_bdevice(path)
++        if path == False:
++            err = "'{0}' is not valid block device".format(path)
++            raise argparse.ArgumentTypeError(err)
+         return self._find_device_record(path)
+ 
+     def is_pool(self, string):
+@@ -1310,7 +1433,7 @@ class StorageHandle(object):
+         if vol:
+             return vol
+         dev = self.dev[string]
+-        if dev and 'fs_type' in dev:
++        if dev and 'fs_info' in dev:
+             return dev
+         err = "'{0}' is not a valid volume to resize".format(string)
+         raise argparse.ArgumentTypeError(err)
+@@ -1366,6 +1489,21 @@ class StorageHandle(object):
+         err = "'{0}' is not valid pool nor volume".format(string)
+         raise argparse.ArgumentTypeError(err)
+ 
++def valid_size(size):
++    """ Validate that the 'size' is usable size argument. This is almost the
++    same as valid_resize_size() except we do not allow '+' and '-' signs
++    """
++
++    err = "'{0}' is not valid size.".format(size)
++    if len(size) and size[0] in ['+', '-']:
++        raise argparse.ArgumentTypeError(err)
++    try:
++        ret = misc.get_real_size(size)
++        if float(ret) < 0:
++            raise argparse.ArgumentTypeError(err)
++    except:
++        raise argparse.ArgumentTypeError(err)
++    return ret
+ 
+ def valid_resize_size(size):
+     """
+@@ -1404,7 +1542,9 @@ def valid_resize_size(size):
+         raise argparse.ArgumentTypeError(err)
+ 
+ 
+-def is_directory(self, string):
++def is_directory(string):
++    if string is None:
++        raise argparse.ArgumentTypeError(err)
+     try:
+         mode = os.stat(string).st_mode
+     except OSError:
+@@ -1417,19 +1557,6 @@ def is_directory(self, string):
+         raise argparse.ArgumentTypeError(err)
+ 
+ 
+-def is_bdevice(path):
+-    path = misc.get_real_device(path)
+-    try:
+-        mode = os.lstat(path).st_mode
+-    except OSError:
+-        err = "'{0}' is not valid block device".format(path)
+-        raise argparse.ArgumentTypeError(err)
+-    if not stat.S_ISBLK(mode):
+-        err = "'{0}' is not valid block device".format(path)
+-        raise argparse.ArgumentTypeError(err)
+-    return path
+-
+-
+ def is_supported_fs(fs):
+     if fs in SUPPORTED_FS:
+         return fs
+@@ -1484,6 +1611,14 @@ class SsmParser(object):
+                      "({0}).".format(",".join(SUPPORTED_BACKENDS)),
+                 choices=SUPPORTED_BACKENDS,
+                 action=SetBackend)
++        parser.add_argument('-n', '--dry-run',
++                help='''Dry run. Do not do anything, just parse the command
++                     line options and gather system information if necessary.
++                     Note that with this option ssm will not perform all the
++                     check as some of them are done by the backends
++                     themselves. This option is mainly used for debugging
++                     purposes.''',
++                action="store_true")
+         return parser
+ 
+     def _get_parser_check(self):
+@@ -1494,7 +1629,7 @@ class SsmParser(object):
+                 help="Check consistency of the file system on the device.")
+         parser_check.add_argument('device', nargs='+',
+                 help="Device with file system to check.",
+-                type=self.storage.is_fs)
++                type=self.storage.can_check)
+         parser_check.set_defaults(func=self.storage.check)
+         return parser_check
+ 
+@@ -1535,7 +1670,8 @@ class SsmParser(object):
+                      A size suffix K|k, M|m, G|g, T|t, P|p, E|e can be used
+                      to define 'power of two' units. If no unit is provided, it
+                      defaults to kilobytes. This is optional if if
+-                     not given maximum possible size will be used.''')
++                     not given maximum possible size will be used.''',
++                type=valid_size)
+         parser_create.add_argument('-n', '--name',
+                 help='''The name for the new logical volume. This is optional
+                      and if omitted, name will be generated by the
+@@ -1571,6 +1707,10 @@ class SsmParser(object):
+         parser_create.add_argument('-p', '--pool', default="",
+                 help="Pool to use to create the new volume.",
+                 type=self.storage.is_pool)
++        parser_create.add_argument('-e', '--encrypt', nargs='?',
++                choices=crypt.SUPPORTED_CRYPT, const=True,
++                help='''Create encrpted volume. Extension to use can be
++                     specified.''')
+         parser_create.add_argument('device', nargs='*',
+                 help='''Devices to use for creating the volume. If the device
+                      is not in any pool, it is added into the pool prior the
+@@ -1637,7 +1777,8 @@ class SsmParser(object):
+                      A size suffix K|k, M|m, G|g, T|t, P|p, E|e can be used
+                      to define 'power of two' units. If no unit is provided, it
+                      defaults to kilobytes. This is option and if not give,
+-                     the size will be determined automatically.''')
++                     the size will be determined automatically.''',
++                type=valid_size)
+         group = parser_snapshot.add_mutually_exclusive_group()
+         group.add_argument('-d', '--dest',
+                 help='''Destination of the snapshot specified with absolute
+@@ -1705,6 +1846,9 @@ def main(args=None):
+     # Register clean-up function on exit
+     sys.exitfunc = misc.do_cleanup
+ 
++    if args.dry_run:
++        return 0;
++
+     try:
+         args.func(args)
+     except argparse.ArgumentTypeError, ex:
+diff --git a/ssmlib/misc.py b/ssmlib/misc.py
+index 8e731ff..3ff1577 100644
+--- a/ssmlib/misc.py
++++ b/ssmlib/misc.py
+@@ -20,6 +20,7 @@
+ import os
+ import re
+ import sys
++import stat
+ import tempfile
+ import threading
+ import subprocess
+@@ -191,13 +192,15 @@ def do_mount(device, directory, options=None):
+     run(command)
+ 
+ 
+-def do_umount(mpoint):
+-    command = ['umount', mpoint]
++def do_umount(mpoint, all_targets=False):
++    command = ['umount']
++    if all_targets:
++        command.append('--all-targets')
+     try:
+-        run(command)
++        run(command + [mpoint])
+     except RuntimeError:
+-        command = ['umount', '-l', mpoint]
+-        run(command)
++        command.append('-l')
++        run(command + mpoint)
+ 
+ 
+ def temp_mount(device, options=None):
+@@ -228,12 +231,13 @@ def get_signature(device, types=None):
+         command.extend(['-u', types])
+     command.append(device)
+ 
+-    output = run(command, can_fail=True)[1].strip()
++    ret, output = run(command, can_fail=True, stderr=False)
++    output = output.strip()
+ 
+-    if len(output) > 0:
+-        return output
+-    else:
++    if ret:
+         return None
++    else:
++        return output
+ 
+ 
+ def get_fs_type(device):
+@@ -319,16 +323,21 @@ def get_dmnumber(name):
+     return dmnumber
+ 
+ 
+-def wipefs(device, typ):
++def wipefs(device, signatures):
++    if type(signatures) is not list:
++        signatures = [signatures]
+     command = ['wipefs', '-p', device]
+     output = run(command)[1]
++    offset = []
+     for line in output[1:].split('\n'):
+         if not line:
+             continue
+         array = line.split(",")
+-        if array[-1] == typ:
+-            command = ['wipefs', '--offset', array[0], device]
+-            run(command)
++        if array[-1] in signatures:
++            offset.extend(['--offset', array[0]])
++    if len(offset) > 1:
++        command = ['wipefs'] + offset + [device]
++        run(command)
+ 
+ 
+ def humanize_size(arg):
+@@ -545,3 +554,26 @@ def terminal_size(default=(25, 80)):
+         if not cr:
+             cr = (25, 80)
+     return int(cr[1]), int(cr[0])
++
++
++def is_bdevice(path):
++    """
++    Check whether the path is block device. If it is return
++    the path to the real block device, otherwise return False
++    """
++    path = get_real_device(path)
++    try:
++        mode = os.lstat(path).st_mode
++    except OSError:
++        return False
++    if not stat.S_ISBLK(mode):
++        return False
++    return path
++
++
++def get_device_size(device):
++    devname = device.split('/')[-1]
++    with open("/sys/block/{0}/size".format(devname), 'r') as f:
++        for line in f:
++            size = int(line)/2
++            return size
+diff --git a/ssmlib/problem.py b/ssmlib/problem.py
+index 56846df..dfa6ec6 100644
+--- a/ssmlib/problem.py
++++ b/ssmlib/problem.py
+@@ -22,7 +22,8 @@ import sys
+ __all__ = ["ProblemSet", "SsmError", "GeneralError", "ProgrammingError",
+            "BadEnvVariable", "NotEnoughSpace", "ResizeMatch", "FsNotSpecified",
+            "DeviceUsed", "ExistingFilesystem", "NoDevices", "ToolMissing",
+-           "CanNotRun", "CommandFailed", "UserInterrupted", "NotSupported"]
++           "CanNotRun", "CommandFailed", "UserInterrupted", "NotSupported",
++           "NotImplemented"]
+ 
+ # Define prompt codes
+ PROMPT_NONE =           0
+@@ -52,9 +53,10 @@ FL_DEFAULT_NO =         16
+ FL_SILENT =             32
+ FL_EXIT_ON_NO =         64
+ FL_EXIT_ON_YES =        128
+-FL_FATAL =              256
++FL_NO_MESSAGE =         256
+ FL_FORCE_YES =          512
+ FL_FORCE_NO =           1024
++FL_FATAL =              (2048 | FL_NO_MESSAGE)
+ 
+ 
+ class SsmError(Exception):
+@@ -65,7 +67,7 @@ class SsmError(Exception):
+         self.errcode = errcode
+ 
+     def __str__(self):
+-        return repr("Error ({0}): {1}".format(self.errcode, self.msg))
++        return "SSM Error ({0}): {1}".format(self.errcode, self.msg)
+ 
+ 
+ class GeneralError(SsmError):
+@@ -142,6 +144,10 @@ class ExistingFilesystem(SsmError):
+     def __init__(self, msg, errcode=2015):
+         super(ExistingFilesystem, self).__init__(msg, errcode)
+ 
++class NotImplemented(SsmError):
++    def __init__(self, msg, errcode=2016):
++        super(NotImplemented, self).__init__(msg, errcode)
++
+ 
+ class ProblemSet(object):
+ 
+@@ -158,7 +164,7 @@ class ProblemSet(object):
+              PROMPT_NONE, FL_FATAL, ProgrammingError]
+ 
+         self.GENERAL_ERROR = \
+-            ['SSM Error: {0}!', PROMPT_NONE, FL_FATAL, GeneralError]
++            ['{0}!', PROMPT_NONE, FL_FATAL, GeneralError]
+ 
+         self.GENERAL_INFO = \
+             ['SSM Info: {0}', PROMPT_NONE, FL_NONE, None]
+@@ -222,11 +228,17 @@ class ProblemSet(object):
+             ['{0} is not supported!',
+              PROMPT_NONE, FL_FATAL, NotSupported]
+ 
++        self.NOT_IMPLEMENTED = \
++            ['\'{0}\' function is not implemented by {1}!',
++            PROMPT_NONE, FL_FATAL, NotImplemented]
++
+     def _can_print_message(self, flags):
+         if (flags & FL_DEBUG_ONLY):
+             return self.options.debug
+         elif (flags & FL_VERBOSE_ONLY):
+             return self.options.verbose
++        elif (flags & FL_NO_MESSAGE):
++            return False
+         else:
+             return True
+ 
+@@ -289,14 +301,10 @@ class ProblemSet(object):
+ 
+         if self._can_print_message(flags) and \
+            (flags & FL_MSG_ONLY or prompt_msg is None):
+-            print >> sys.stderr, message,
+-        else:
+-            print message,
++            print >> sys.stderr, message
+         if not flags & FL_MSG_ONLY and prompt_msg is not None:
+-            print '{0}'.format(prompt_msg),
++            print message, '{0}'.format(prompt_msg),
+             res = self._ask_question(flags)
+-        else:
+-            print >> sys.stderr
+ 
+         if (flags & FL_FATAL):
+             if exc:
+diff --git a/tests/bashtests/001-lvm-add.sh b/tests/bashtests/001-lvm-add.sh
+index fee51a8..cfe95da 100755
+--- a/tests/bashtests/001-lvm-add.sh
++++ b/tests/bashtests/001-lvm-add.sh
+@@ -131,6 +131,16 @@ mkfs.ext3 $dev1
+ # Default answer is No
+ not ssm add $dev1
+ not check vg_field $SSM_LVM_DEFAULT_POOL pv_count 1
++# It can be forced though
++ssm -f add $dev1
++check vg_field $SSM_LVM_DEFAULT_POOL pv_count 1
++ssm -f remove $SSM_LVM_DEFAULT_POOL
++
++# Try to use device with existing file system
++mkfs.ext3 $dev1
++# Default answer is No
++not ssm add $dev1
++not check vg_field $SSM_LVM_DEFAULT_POOL pv_count 1
+ ssm add $dev1 $dev2
+ check vg_field $SSM_LVM_DEFAULT_POOL pv_count 1
+ ssm -f remove --all
+diff --git a/tests/bashtests/002-lvm-create.sh b/tests/bashtests/002-lvm-create.sh
+index aceea6d..d316e5d 100755
+--- a/tests/bashtests/002-lvm-create.sh
++++ b/tests/bashtests/002-lvm-create.sh
+@@ -115,6 +115,64 @@ check list_table "$(ssm list pool)" $SSM_LVM_DEFAULT_POOL lvm 10 none none 960.0
+ check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol1 $SSM_LVM_DEFAULT_POOL 960.00MB striped
+ ssm  -f remove $SSM_LVM_DEFAULT_POOL
+ 
++# Create a raid 1 logical volume
++# Size of the volume must be specified for lvm raid1
++not ssm create -r 1 $dev1 $dev2
++size=$((DEV_SIZE/2))
++size=$(align_size_up $size)
++ssm create -s ${size}M -r 1 $dev1 $dev2
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 segtype raid1
++check list_table "$(ssm list pool)" $SSM_LVM_DEFAULT_POOL lvm 2 none none 192.00MB
++check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol1 $SSM_LVM_DEFAULT_POOL ${size}.00MB raid1
++
++ssm add $TEST_DEVS
++size=$((DEV_SIZE*2))
++size=$(align_size_up $size)
++ssm create -s ${size}M -r 1
++check list_table "$(ssm list pool)" $SSM_LVM_DEFAULT_POOL lvm 10 none none 960.00MB
++check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol2 $SSM_LVM_DEFAULT_POOL ${size}.00MB raid1
++ssm  -f remove $SSM_LVM_DEFAULT_POOL
++
++# Create a raid 10 logical volume
++# Size of the volume must be specified for lvm raid10
++not ssm create -r 10 $dev1 $dev2 $dev3 $dev4
++# Minimum is 4 devices
++not ssm create -s ${DEV_SIZE}M -r 10 $dev1 $dev2
++# Number of device has to be even
++not ssm create -s ${DEV_SIZE}M -r 10 $dev1 $dev2 $dev3 $dev4 $dev5
++ssm remove $dev5
++ssm create -s ${DEV_SIZE}M -r 10 $dev1 $dev2 $dev3 $dev4
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 stripes 4
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 segtype raid10
++check list_table "$(ssm list pool)" $SSM_LVM_DEFAULT_POOL lvm 4 none none 384.00MB
++check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol1 $SSM_LVM_DEFAULT_POOL 104.00MB raid1
++size=56
++# Stripes or device has to be specified
++not ssm create -s ${size}M -r 10
++ssm create -s ${size}M -r 10 --stripes 2
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol2 stripes 4
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol2 segtype raid10
++check list_table "$(ssm list pool)" $SSM_LVM_DEFAULT_POOL lvm 4 none none 384.00MB
++check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol2 $SSM_LVM_DEFAULT_POOL ${size}.00MB raid10
++ssm add $TEST_DEVS
++size=60
++ssm create -s ${size}M -r 10 --stripes 3
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol3 stripes 6
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol3 segtype raid10
++check list_table "$(ssm list pool)" $SSM_LVM_DEFAULT_POOL lvm 10 none none 960.00MB
++check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol3 $SSM_LVM_DEFAULT_POOL ${size}.00MB raid10
++ssm  -f remove $SSM_LVM_DEFAULT_POOL
++ssm add $TEST_DEVS
++size=$((DEV_SIZE*2))
++size=$(align_size_up $size)
++ssm create -s ${size}M -r 10 $TEST_DEVS
++ssm list
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 stripes 10
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 segtype raid10
++check list_table "$(ssm list pool)" $SSM_LVM_DEFAULT_POOL lvm 10 none none 960.00MB
++check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol1 $SSM_LVM_DEFAULT_POOL ${size}.00MB raid10
++ssm  -f remove $SSM_LVM_DEFAULT_POOL
++
+ # Create several volumes with different parameters
+ ssm  add $TEST_DEVS
+ not ssm create -I 8 -i $(($DEV_COUNT/2)) -s $(($DEV_SIZE*2))M
+@@ -174,7 +232,8 @@ for fs in $TEST_FS; do
+ 	check vg_field $SSM_LVM_DEFAULT_POOL pv_count 3
+ 
+ 	# pool doesn't exist
+-	ssm create --fstype $fs -s $((DEV_SIZE/2))m -n randvol $dev4 $mnt2
++	ssm create --fstype $fs -s $((DEV_SIZE/2))m -n randvol $dev4
++	ssm mount  $SSM_LVM_DEFAULT_POOL/randvol $mnt2
+ 	size=`align_size_up $((DEV_SIZE/2))`
+ 	check lv_field $SSM_LVM_DEFAULT_POOL/randvol lv_size $size.00m
+ 	check mountpoint $SSM_LVM_DEFAULT_POOL-randvol $mnt2
+@@ -282,4 +341,8 @@ not ssm create
+ ssm add $TEST_DEVS
+ not ssm create -p $pool1
+ not ssm create -r 0 -I 16 -i 3 $dev1 $dev2
++not ssm create -s-20M
++not ssm create -s+20M
++not ssm create --size 25.8.1991
++not ssm create --size linux
+ ssm  -f remove --all
+diff --git a/tests/bashtests/004-lvm-resize.sh b/tests/bashtests/004-lvm-resize.sh
+index f430851..c863f36 100755
+--- a/tests/bashtests/004-lvm-resize.sh
++++ b/tests/bashtests/004-lvm-resize.sh
+@@ -48,20 +48,79 @@ TEST_MNT=$TESTDIR/mnt
+ 
+ _test_resize()
+ {
+-	size=$((TEST_MAX_SIZE/2))
+-	echo 'y' | ssm -f resize --size ${size}M ${DM_DEV_DIR}/$DEFAULT_VOLUME
++	# Test with no device
++	# Test size increase
++	size=$DEV_SIZE
++	check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++	size=$((DEV_SIZE + 12))
++	ssm resize -s ${size}M $SSM_LVM_DEFAULT_POOL/$lvol1
++	check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++	size=$((size + 3))
++	ssm resize -s +3M $SSM_LVM_DEFAULT_POOL/$lvol1
+ 	size=$(align_size_up $size)
+ 	check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++	# Test size decrese
++	if [ "$fs" != "xfs" ]; then
++		size=$((size - 8))
++		ssm -f resize -s ${size}M $SSM_LVM_DEFAULT_POOL/$lvol1
++		check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++		size=$((size - 7))
++		ssm -f resize -s-7M $SSM_LVM_DEFAULT_POOL/$lvol1
++		size=$(align_size_up $size)
++		check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++		# Test with devcie belongs to no pool
++		# size decrease
++		size=$((size - 12))
++		ssm -f resize -s ${size}M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev4
++		check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++		check vg_field $SSM_LVM_DEFAULT_POOL pv_count 3
++		check vg_field $pool1 pv_count 3
++	fi
++	# If the volume is already of the given size ssm will attempt to resize
++	# file system to cover the whole device. Note that we do not check for
++	# the file system size because it's not really necessary. So this would
++	# fail if the file system is present. This might change in future, so
++	# comment it out for now.
++	# size doesn't change
++	#not ssm -f resize -s ${size}M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev4
++	#check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++	#check vg_field $SSM_LVM_DEFAULT_POOL pv_count 3
++	#check vg_field $pool1 pv_count 3
++	# size increase
++	size=$((size + 12))
++	ssm resize -s ${size}M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev4
++	check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++	check vg_field $SSM_LVM_DEFAULT_POOL pv_count 3
++	check vg_field $pool1 pv_count 3
+ 
+-	# xfs does not support shrinking (xfs only grows big!! :))
++	# Test with device belongs to other pool
++	# size decrease
+ 	if [ "$fs" != "xfs" ]; then
+-		ssm -f -v resize -s-$(($TEST_MAX_SIZE/4))M $DEFAULT_VOLUME
+-		size=$(align_size_up $(($size-($TEST_MAX_SIZE/4))))
++		size=$((size - 12))
++		ssm -f resize -s ${size}M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev6
+ 		check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++		check vg_field $SSM_LVM_DEFAULT_POOL pv_count 3
++		check vg_field $pool1 pv_count 3
+ 	fi
+-	echo 'y' | ssm -f resize --size +$(($TEST_MAX_SIZE/5))M $DEFAULT_VOLUME
+-	size=$(align_size_up $(($size+($TEST_MAX_SIZE/5))))
++	# size doesn't change
++	#not ssm -f resize -s ${size}M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev6
++	#check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++	#check vg_field $SSM_LVM_DEFAULT_POOL pv_count 3
++	#check vg_field $pool1 pv_count 3
++	# size increase
++	size=$((size + 12))
++	ssm -f resize -s ${size}M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev6
++	check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++	check vg_field $SSM_LVM_DEFAULT_POOL pv_count 3
++	check vg_field $pool1 pv_count 3
++
++	# when resize to excessive amount
++	size=$((DEV_SIZE*4))
++	not ssm resize -s ${size}M $SSM_LVM_DEFAULT_POOL/$lvol1
++	ssm resize -s ${size}M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev8 $dev9
+ 	check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 lv_size ${size}.00m
++	check vg_field $SSM_LVM_DEFAULT_POOL pv_count 5
++
+ }
+ 
+ ssm add $TEST_DEVS
+@@ -100,46 +159,37 @@ ssm -f remove $SSM_LVM_DEFAULT_POOL
+ ssm create --size $((DEV_SIZE/2))M $dev1
+ check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 1
+ ssm resize --size +$((DEV_SIZE/3))M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev2
+-check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 2
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 1
+ ssm -f resize -s-$((DEV_SIZE/3))M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev2 $dev3
+ ssm resize --size +$((DEV_SIZE/3))M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev2 $dev3
+-check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 3
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 1
+ ssm -f resize -s-$((DEV_SIZE/3))M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev2 $dev3
+-check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 3
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 1
+ ssm resize --size +${DEV_SIZE}M $SSM_LVM_DEFAULT_POOL/$lvol1 $dev2 $dev3
+ check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 3
+ ssm -f remove $SSM_LVM_DEFAULT_POOL
+ 
++
++ssm add $dev{1,2,3}
++ssm create -s ${DEV_SIZE}M
++ssm add -p $pool1 $dev{5,6,7}
++_test_resize
++ssm -f remove $SSM_LVM_DEFAULT_POOL
++ssm -f remove $pool1
++
++
+ [ ! -d $TEST_MNT ] && mkdir $TEST_MNT &> /dev/null
+ for fs in $TEST_FS; do
+-	# umounted test
+-	ssm add $TEST_DEVS
+-	size=$((TEST_MAX_SIZE/4))
+-	ssm create --fs $fs --size ${size}M $TEST_DEVS
+-
++	ssm add $dev{1,2,3}
++	ssm create -s ${DEV_SIZE}M --fs $fs
++	ssm -f check $DEFAULT_VOLUME
++	ssm add -p $pool1 $dev{5,6,7}
+ 	_test_resize
+ 	ssm -f check $DEFAULT_VOLUME
+ 	ssm -f remove $SSM_LVM_DEFAULT_POOL
+-
+-        echo $fs
+-        if [ $fs == 'ext2' ]; then
+-            continue
+-        fi
+-
+-        # Disable this for now, since fsadm does not handle -f and -y correctly
+-	# mounted test
+-	#ssm add $TEST_DEVS
+-	size=$((TEST_MAX_SIZE/4))
+-	#ssm create --fs $fs --size ${size}M $TEST_DEVS
+-
+-	#mount ${DM_DEV_DIR}/$DEFAULT_VOLUME $TEST_MNT
+-
+-	#_test_resize
+-
+-	#umount $TEST_MNT
+-	#ssm -f check $DEFAULT_VOLUME
+-	#ssm -f remove $SSM_LVM_DEFAULT_POOL
++	ssm -f remove $pool1
+ done
++# There should not be anything to remove
+ not ssm  -f remove --all
+ 
+ ssm create $dev1
+diff --git a/tests/bashtests/007-btrfs-create.sh b/tests/bashtests/007-btrfs-create.sh
+index 1ea27df..c971a76 100755
+--- a/tests/bashtests/007-btrfs-create.sh
++++ b/tests/bashtests/007-btrfs-create.sh
+@@ -88,6 +88,7 @@ ssm -f remove $SSM_BTRFS_DEFAULT_POOL
+ 
+ # Create raid 10 volume with just one device
+ ssm create -r 10 $dev1 $dev2 $dev3 $dev4
++ssm check $SSM_BTRFS_DEFAULT_POOL
+ not ssm create $dev1 -p $pool1
+ ssm -f remove $SSM_BTRFS_DEFAULT_POOL
+ 
+diff --git a/tests/bashtests/011-lvm-list.sh b/tests/bashtests/011-lvm-list.sh
+index 66567a1..73cea90 100755
+--- a/tests/bashtests/011-lvm-list.sh
++++ b/tests/bashtests/011-lvm-list.sh
+@@ -1,6 +1,6 @@
+ #!/bin/bash
+ #
+-# (C)2012 Red Hat, Inc., Tom Marek <tmarek@redhat.com>
++# (C)2013 Red Hat, Inc., Jimmy Pan <jipan@redhat.com>
+ #
+ # This program is free software: you can redistribute it and/or modify
+ # it under the terms of the GNU General Public License as published by
+@@ -21,9 +21,10 @@ export test_description='Check whether list command prints correct values for lv
+ . lib/test
+ 
+ DEV_COUNT=10
+-DEV_SIZE=100
++DEV_SIZE=128
+ TEST_MAX_SIZE=$(($DEV_COUNT*$DEV_SIZE))
+ aux prepare_devs $DEV_COUNT $DEV_SIZE
++aux prepare_mnts 10
+ TEST_DEVS=$(cat DEVICES)
+ export LVOL_PREFIX="lvol"
+ export SSM_DEFAULT_BACKEND='lvm'
+@@ -33,8 +34,14 @@ export SSM_NONINTERACTIVE='1'
+ snap1="snap1"
+ snap2="snap2"
+ 
++lvol1=${LVOL_PREFIX}001
++lvol2=${LVOL_PREFIX}002
++lvol3=${LVOL_PREFIX}003
++
++pool0=$vg1
+ pool1=$vg2
+ pool2=$vg3
++pool3=$vg4
+ 
+ TEST_FS=
+ which mkfs.ext2 && TEST_FS+="ext2 "
+@@ -45,28 +52,262 @@ which mkfs.xfs  && TEST_FS+="xfs"
+ TEST_MNT=$TESTDIR/mnt
+ [ ! -d $TEST_MNT ] && mkdir $TEST_MNT &> /dev/null
+ 
+-##LVM
+-# Check devices
+-ssm add $TEST_DEVS
+-ssm_output=$(ssm list dev)
+-for device in ${TEST_DEVS}; do
+-     check list_table "$ssm_output" $device 96.00MB 0.00KB 96.00MB $SSM_LVM_DEFAULT_POOL
++# Prepare pools and volumes
++
++vol1=volsf
++vol2=volss
++vol3=volmf
++vol4=volms1
++vol5=volms2
++vol6=volms3
++maxvolsz=$((DEV_SIZE-4))
++size1=$maxvolsz
++size2=$((DEV_SIZE/2))
++size3=$((maxvolsz*2))
++size4=$((DEV_SIZE/2))
++size5=$((DEV_SIZE*2))
++size6=$((DEV_SIZE/4))
++size4s=$((size4-20))
++size2r=$((size2-4))
++size5r=$((size5+16))
++
++
++# Test without a filesystem
++ssm -f create -n $vol1 $dev1
++ssm create -n $vol2 -p $pool1 -s ${size2}M $dev2
++ssm create -n $vol3 -p $pool2 $dev3 $dev4
++ssm add -p $pool3 $dev{5,6,7,8}
++ssm create -p $pool3 -s ${size4}m -n $vol4
++ssm create -p $pool3 -s ${size5}m -n $vol5
++ssm create -p $pool3 -s ${size6}m -n $vol6
++
++# We shouldn't see ssm list fs here
++test `ssm list fs | wc -l` -le 1
++# Check vol, dev, pool, resized vol, and snapshot
++output=`ssm list vol`
++check list_table "$output" $pool0/$vol1 $pool0 $((size1)).00MB linear
++check list_table "$output" $pool1/$vol2 $pool1 $size2.00MB linear
++check list_table "$output" $pool2/$vol3 $pool2 $((size3)).00MB linear
++check list_table "$output" $pool3/$vol4 $pool3 $((size4)).00MB linear
++check list_table "$output" $pool3/$vol5 $pool3 $((size5)).00MB linear
++check list_table "$output" $pool3/$vol6 $pool3 $((size6)).00MB linear
++output=`ssm list dev`
++check list_table "$output" $dev1 0.00KB $((size1)).00MB 124.00MB $pool0
++check list_table "$output" $dev2 $((maxvolsz-size2)).00MB $((size2)).00MB 124.00MB $pool1
++check list_table "$output" $dev3 0.00KB $((maxvolsz)).00MB 124.00MB $pool2
++check list_table "$output" $dev4 0.00KB $((maxvolsz)).00MB 124.00MB $pool2
++check list_table "$output" $dev5 none none 124.00MB $pool3
++check list_table "$output" $dev6 none none 124.00MB $pool3
++check list_table "$output" $dev7 none none 124.00MB $pool3
++check list_table "$output" $dev8 none none 124.00MB $pool3
++output=`ssm list pool`
++check list_table "$output" $pool0 lvm 1 0.00KB $((size1)).00MB $((maxvolsz)).00MB
++check list_table "$output" $pool1 lvm 1 $((maxvolsz-size2)).00MB $((size2)).00MB $((maxvolsz)).00MB
++check list_table "$output" $pool2 lvm 2 0.00KB $((size3)).00MB $((maxvolsz*2)).00MB
++check list_table "$output" $pool3 lvm 4 $((maxvolsz*4-size4-size5-size6)).00MB $((size4+size5+size6)).00MB $((maxvolsz*4)).00MB
++
++# Check ssm vol after resize
++ssm -f resize $pool1/$vol2 -s ${size2r}M
++ssm resize -s ${size5r}m $pool3/$vol5
++output=`ssm list vol`
++check list_table "$output" $pool1/$vol2 $pool1 $size2r.00MB linear
++check list_table "$output" $pool3/$vol5 $pool3 $((size5r)).00MB linear
++
++ssm snapshot $pool3/$vol4 -n snap1
++ssm snapshot $pool3/$vol4 -s ${size4s}m -n snap2
++output=`ssm list snap`
++check list_table "$output" $pool3/snap1 $vol4 $pool3 none none linear
++check list_table "$output" $pool3/snap2 $vol4 $pool3 $size4s.00MB none linear
++
++
++ssm -f remove -a
++
++
++# Test with filesystem
++for fs in $TEST_FS ; do
++	ssm -f create -n $vol1 $dev1 --fs $fs
++	ssm create -n $vol2 -p $pool1 -s ${size2}M $dev2 --fs $fs
++	ssm create -n $vol3 -p $pool2 $dev3 $dev4 --fs $fs
++	ssm add -p $pool3 $dev{5,6,7,8}
++	ssm create -p $pool3 -s ${size4}m -n $vol4 --fs $fs
++	ssm create -p $pool3 -s ${size5}m -n $vol5 --fs $fs
++	ssm create -p $pool3 -s ${size6}m -n $vol6 --fs $fs
++
++	# Check fs, vol, dev, pool, resized vol, and snapshot
++	output=`ssm list fs`
++	# xfs has some strange used size, so we don't check it
++	if [ $fs == xfs ] ; then
++		check list_table "$output" $pool0/$vol1 $pool0 $size1.00MB $fs none none linear
++		check list_table "$output" $pool1/$vol2 $pool1 $size2.00MB $fs none none linear
++		check list_table "$output" $pool2/$vol3 $pool2 $size3.00MB $fs none none linear
++		check list_table "$output" $pool3/$vol4 $pool3 $size4.00MB $fs none none linear
++		check list_table "$output" $pool3/$vol5 $pool3 $size5.00MB $fs none none linear
++		check list_table "$output" $pool3/$vol6 $pool3 $size6.00MB $fs none none linear
++	else
++		check list_table "$output" $pool0/$vol1 $pool0 $size1.00MB $fs $size1.00MB none linear
++		check list_table "$output" $pool1/$vol2 $pool1 $size2.00MB $fs $size2.00MB none linear
++		check list_table "$output" $pool2/$vol3 $pool2 $size3.00MB $fs $size3.00MB none linear
++		check list_table "$output" $pool3/$vol4 $pool3 $size4.00MB $fs $size4.00MB none linear
++		check list_table "$output" $pool3/$vol5 $pool3 $size5.00MB $fs $size5.00MB none linear
++		check list_table "$output" $pool3/$vol6 $pool3 $size6.00MB $fs $size6.00MB none linear
++	fi
++
++	output=`ssm list vol`
++	# xfs has some strange used size, so we don't check it
++	if [ $fs == xfs ] ; then
++		check list_table "$output" $pool0/$vol1 $pool0 $size1.00MB $fs none none linear
++		check list_table "$output" $pool1/$vol2 $pool1 $size2.00MB $fs none none linear
++		check list_table "$output" $pool2/$vol3 $pool2 $size3.00MB $fs none none linear
++		check list_table "$output" $pool3/$vol4 $pool3 $size4.00MB $fs none none linear
++		check list_table "$output" $pool3/$vol5 $pool3 $size5.00MB $fs none none linear
++		check list_table "$output" $pool3/$vol6 $pool3 $size6.00MB $fs none none linear
++	else
++		check list_table "$output" $pool0/$vol1 $pool0 $size1.00MB $fs $size1.00MB none linear
++		check list_table "$output" $pool1/$vol2 $pool1 $size2.00MB $fs $size2.00MB none linear
++		check list_table "$output" $pool2/$vol3 $pool2 $size3.00MB $fs $size3.00MB none linear
++		check list_table "$output" $pool3/$vol4 $pool3 $size4.00MB $fs $size4.00MB none linear
++		check list_table "$output" $pool3/$vol5 $pool3 $size5.00MB $fs $size5.00MB none linear
++		check list_table "$output" $pool3/$vol6 $pool3 $size6.00MB $fs $size6.00MB none linear
++	fi
++
++	output=`ssm list dev`
++	check list_table "$output" $dev1 0.00KB $((size1)).00MB 124.00MB $pool0
++	check list_table "$output" $dev2 $((maxvolsz-size2)).00MB $((size2)).00MB 124.00MB $pool1
++	check list_table "$output" $dev3 0.00KB $((maxvolsz)).00MB 124.00MB $pool2
++	check list_table "$output" $dev4 0.00KB $((maxvolsz)).00MB 124.00MB $pool2
++	check list_table "$output" $dev5 none none 124.00MB $pool3
++	check list_table "$output" $dev6 none none 124.00MB $pool3
++	check list_table "$output" $dev7 none none 124.00MB $pool3
++	check list_table "$output" $dev8 none none 124.00MB $pool3
++	output=`ssm list pool`
++	check list_table "$output" $pool0 lvm 1 0.00KB $((size1)).00MB $((maxvolsz)).00MB
++	check list_table "$output" $pool1 lvm 1 $((maxvolsz-size2)).00MB $((size2)).00MB $((maxvolsz)).00MB
++	check list_table "$output" $pool2 lvm 2 0.00KB $((size3)).00MB $((maxvolsz*2)).00MB
++	check list_table "$output" $pool3 lvm 4 $((maxvolsz*4-size4-size5-size6)).00MB $((size4+size5+size6)).00MB $((maxvolsz*4)).00MB
++
++	# Check ssm vol after resize
++	# xfs size cannot reduce
++	if [ "$fs" != xfs ] ; then
++		ssm -f resize $pool1/$vol2 -s ${size2r}M
++	fi
++	ssm resize -s ${size5r}m $pool3/$vol5
++
++	output=`ssm list vol`
++	# xfs has some strange used size, so we don't check it
++	if [ "$fs" != xfs ] ; then
++		check list_table "$output" $pool1/$vol2 $pool1 $size2r.00MB $fs $size2r none linear
++		check list_table "$output" $pool3/$vol5 $pool3 $size5r.00MB $fs $size5r none linear
++	else
++		check list_table "$output" $pool3/$vol5 $pool3 $size5r.00MB $fs none none linear
++	fi
++
++	ssm snapshot $pool3/$vol4 -n snap1
++	ssm snapshot $pool3/$vol4 -s ${size4s}m -n snap2
++
++	output=`ssm list snap`
++	check list_table "$output" $pool3/snap1 $vol4 $pool3 none none linear
++	check list_table "$output" $pool3/snap2 $vol4 $pool3 $size4s.00MB none linear
++
++	ssm -f remove -a
++
+ done
+ 
+-# Check pools
+-check list_table "$(ssm list pool)" $SSM_LVM_DEFAULT_POOL $SSM_DEFAULT_BACKEND $DEV_COUNT none none 960.00MB
+-ssm -f remove --all
++# Test with a mountpoint
++for fs in $TEST_FS ; do
++	ssm -f create -n $vol1 --fs $fs $dev1 $mnt1
++	ssm create -n $vol2 -p $pool1 -s ${size2}M --fs $fs $dev2 $mnt2
++	ssm create -n $vol3 -p $pool2 --fs $fs $dev3 $dev4 $mnt3
++	ssm add -p $pool3 $dev{5,6,7,8}
++	ssm create -p $pool3 -s ${size4}m -n $vol4 --fs $fs $mnt4
++	ssm create -p $pool3 -s ${size5}m -n $vol5 --fs $fs $mnt5
++	ssm create -p $pool3 -s ${size6}m -n $vol6 --fs $fs $mnt6
+ 
+-# create multiple pools
+-ssm create --pool $pool1 $dev1 $dev2 $dev3 $dev4
+-ssm create --pool $pool2 $dev5 $dev6 $dev7 $dev8
+-ssm_output=$(ssm list pool)
+-check list_table "$ssm_output" $pool1 lvm 4 none none 384.00MB
+-check list_table "$ssm_output" $pool2 lvm 4 none none 384.00MB
+-ssm -f remove --all
++	# Check fs, vol, dev, pool, resized vol, and snapshot
++	output=`ssm list fs`
++	# xfs has some strange used size, so we don't check it
++	if [ $fs == xfs ] ; then
++		check list_table "$output" $pool0/$vol1 $pool0 $size1.00MB $fs none none linear $mnt1
++		check list_table "$output" $pool1/$vol2 $pool1 $size2.00MB $fs none none linear $mnt2
++		check list_table "$output" $pool2/$vol3 $pool2 $size3.00MB $fs none none linear $mnt3
++		check list_table "$output" $pool3/$vol4 $pool3 $size4.00MB $fs none none linear $mnt4
++		check list_table "$output" $pool3/$vol5 $pool3 $size5.00MB $fs none none linear $mnt5
++		check list_table "$output" $pool3/$vol6 $pool3 $size6.00MB $fs none none linear $mnt6
++	else
++		check list_table "$output" $pool0/$vol1 $pool0 $size1.00MB $fs $size1.00MB none linear $mnt1
++		check list_table "$output" $pool1/$vol2 $pool1 $size2.00MB $fs $size2.00MB none linear $mnt2
++		check list_table "$output" $pool2/$vol3 $pool2 $size3.00MB $fs $size3.00MB none linear $mnt3
++		check list_table "$output" $pool3/$vol4 $pool3 $size4.00MB $fs $size4.00MB none linear $mnt4
++		check list_table "$output" $pool3/$vol5 $pool3 $size5.00MB $fs $size5.00MB none linear $mnt5
++		check list_table "$output" $pool3/$vol6 $pool3 $size6.00MB $fs $size6.00MB none linear $mnt6
++	fi
+ 
+-ssm add $TEST_DEVS
++	output=`ssm list vol`
++	# xfs has some strange used size, so we don't check it
++	if [ $fs == xfs ] ; then
++		check list_table "$output" $pool0/$vol1 $pool0 $size1.00MB $fs none none linear $mnt1
++		check list_table "$output" $pool1/$vol2 $pool1 $size2.00MB $fs none none linear $mnt2
++		check list_table "$output" $pool2/$vol3 $pool2 $size3.00MB $fs none none linear $mnt3
++		check list_table "$output" $pool3/$vol4 $pool3 $size4.00MB $fs none none linear $mnt4
++		check list_table "$output" $pool3/$vol5 $pool3 $size5.00MB $fs none none linear $mnt5
++		check list_table "$output" $pool3/$vol6 $pool3 $size6.00MB $fs none none linear $mnt6
++	else
++		check list_table "$output" $pool0/$vol1 $pool0 $size1.00MB $fs $size1.00MB none linear $mnt1
++		check list_table "$output" $pool1/$vol2 $pool1 $size2.00MB $fs $size2.00MB none linear $mnt2
++		check list_table "$output" $pool2/$vol3 $pool2 $size3.00MB $fs $size3.00MB none linear $mnt3
++		check list_table "$output" $pool3/$vol4 $pool3 $size4.00MB $fs $size4.00MB none linear $mnt4
++		check list_table "$output" $pool3/$vol5 $pool3 $size5.00MB $fs $size5.00MB none linear $mnt5
++		check list_table "$output" $pool3/$vol6 $pool3 $size6.00MB $fs $size6.00MB none linear $mnt6
++	fi
++
++	output=`ssm list dev`
++	check list_table "$output" $dev1 0.00KB $((size1)).00MB 124.00MB $pool0
++	check list_table "$output" $dev2 $((maxvolsz-size2)).00MB $((size2)).00MB 124.00MB $pool1
++	check list_table "$output" $dev3 0.00KB $((maxvolsz)).00MB 124.00MB $pool2
++	check list_table "$output" $dev4 0.00KB $((maxvolsz)).00MB 124.00MB $pool2
++	check list_table "$output" $dev5 none none 124.00MB $pool3
++	check list_table "$output" $dev6 none none 124.00MB $pool3
++	check list_table "$output" $dev7 none none 124.00MB $pool3
++	check list_table "$output" $dev8 none none 124.00MB $pool3
++	output=`ssm list pool`
++	check list_table "$output" $pool0 lvm 1 0.00KB $((size1)).00MB $((maxvolsz)).00MB
++	check list_table "$output" $pool1 lvm 1 $((maxvolsz-size2)).00MB $((size2)).00MB $((maxvolsz)).00MB
++	check list_table "$output" $pool2 lvm 2 0.00KB $((size3)).00MB $((maxvolsz*2)).00MB
++	check list_table "$output" $pool3 lvm 4 $((maxvolsz*4-size4-size5-size6)).00MB $((size4+size5+size6)).00MB $((maxvolsz*4)).00MB
++
++	# Check ssm vol after resize
++	# xfs size cannot reduce
++	if [ "$fs" != xfs ] ; then
++		umount $mnt2
++		ssm -f resize $pool1/$vol2 -s ${size2r}M
++	fi
++	ssm resize -s ${size5r}m $pool3/$vol5
++
++	output=`ssm list vol`
++	# xfs has some strange used size, so we don't check it
++	if [ "$fs" != xfs ] ; then
++		check list_table "$output" $pool1/$vol2 $pool1 $size2r.00MB $fs $size2r none linear
++		check list_table "$output" $pool3/$vol5 $pool3 $size5r.00MB $fs $size5r none linear
++	else
++		check list_table "$output" $pool3/$vol5 $pool3 $size5r.00MB $fs none none linear
++	fi
+ 
++	ssm snapshot $pool3/$vol4 -n snap1
++	ssm snapshot $pool3/$vol4 -s ${size4s}m -n snap2
++
++	output=`ssm list snap`
++	check list_table "$output" $pool3/snap1 $vol4 $pool3 none none linear
++	check list_table "$output" $pool3/snap2 $vol4 $pool3 $size4s.00MB none linear
++
++	for i in {1..6} ; do
++		mntdir=`eval echo '$mnt'$i`
++		umount $mntdir || true
++	done
++
++	ssm -f remove -a
++
++done
++
++ssm add $TEST_DEVS
+ # Check LVM volume listings with various fs
+ for fs in $TEST_FS; do
+     name="${fs}vol"
+@@ -85,30 +326,5 @@ for fs in $TEST_FS; do
+ done
+ ssm -f remove $SSM_LVM_DEFAULT_POOL
+ 
+-# Check lvm snapshot
+-lvol1=${LVOL_PREFIX}001
+-# Create volume with all devices at once
+-size=$(($DEV_SIZE*6))
+-snap_size1=$(($DEV_SIZE))
+-snap_size2=$(($size/5))
+-ssm create --size ${size}M $TEST_DEVS
+-ssm snapshot --name $snap1 --size ${snap_size1}M $SSM_LVM_DEFAULT_POOL/$lvol1
+-ssm snapshot --name $snap2 --size ${snap_size2}M $SSM_LVM_DEFAULT_POOL/$lvol1
+-ssm_output=$(ssm list snap)
+-check list_table "$ssm_output" $snap1 $lvol1 $SSM_LVM_DEFAULT_POOL ${snap_size1}.00MB 0.00KB linear
+-check list_table "$ssm_output" $snap2 $lvol1 $SSM_LVM_DEFAULT_POOL ${snap_size2}.00MB 0.00KB linear
+-ssm -f remove --all
+-
+-# Snapshot of the volumes in defferent pools
+-ssm create --pool $pool1 $dev1 $dev2
+-ssm add $dev3 $dev4 --pool $pool1
+-ssm create --pool $pool2 $dev5 $dev6
+-ssm add $dev7 $dev8 --pool $pool2
+-ssm snapshot --name $snap1 $pool1/$lvol1
+-ssm snapshot --name $snap1 $pool2/$lvol1
+-ssm_output=$(ssm list snap)
+-check list_table "$ssm_output" "$pool1/$snap1" $lvol1 $pool1 40.00MB 0.00KB linear
+-check list_table "$ssm_output" "$pool2/$snap1" $lvol1 $pool2 40.00MB 0.00KB linear
+-ssm -f remove --all
+-
+-# all_done!!!
++# Some situation should fail
++not ssm list wrong_type
+diff --git a/tests/bashtests/012-crypt-create.sh b/tests/bashtests/012-crypt-create.sh
+new file mode 100644
+index 0000000..8a5fddb
+--- /dev/null
++++ b/tests/bashtests/012-crypt-create.sh
+@@ -0,0 +1,143 @@
++#!/bin/bash
++#
++# (C)2013 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
++#
++# This program is free software: you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation, either version 2 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++export test_name='012-crypt-create'
++test_description='Exercise crypt create'
++
++. lib/test
++
++DEV_COUNT=10
++DEV_SIZE=100
++TEST_MAX_SIZE=$(($DEV_COUNT*$DEV_SIZE))
++aux prepare_devs $DEV_COUNT $DEV_SIZE
++aux prepare_mnts 4
++TEST_DEVS=$(cat DEVICES)
++export SSM_DEFAULT_BACKEND='crypt'
++export SSM_CRYPT_DEFAULT_POOL=$vg1
++export CRYPT_VOL_PREFIX="${SSM_PREFIX_FILTER}enc"
++export SSM_NONINTERACTIVE='1'
++export SSM_CRYPT_DEFAULT_VOL_PREFIX=$CRYPT_VOL_PREFIX
++crypt_vol1=${CRYPT_VOL_PREFIX}001
++crypt_vol2=${CRYPT_VOL_PREFIX}002
++crypt_vol3=${CRYPT_VOL_PREFIX}003
++crypt_vol4=${CRYPT_VOL_PREFIX}004
++passwd="cai0ohMo8M"
++
++pool1=$vg2
++pool2=$vg3
++DEV="/dev/mapper"
++
++# cryptsetup will ask for password. If luks extension is used
++# it will ask when creating header and then when opening the device
++pass() {
++	echo -e "${passwd}\n${passwd}"
++}
++
++
++# Create encrypted volume
++pass | ssm create $dev1
++check crypt_vol_field $crypt_vol1 type LUKS1
++check crypt_vol_field $crypt_vol1 device $dev1
++check list_table "$(ssm list vol)" $crypt_vol1 $SSM_CRYPT_DEFAULT_POOL none crypt
++
++pass | ssm create $dev2 -e
++check crypt_vol_field $crypt_vol2 type LUKS1
++check crypt_vol_field $crypt_vol2 device $dev2
++check list_table "$(ssm list vol)" $crypt_vol2 $SSM_CRYPT_DEFAULT_POOL none crypt
++
++pass | ssm create -e luks $dev3
++check crypt_vol_field $crypt_vol3 type LUKS1
++check crypt_vol_field $crypt_vol3 device $dev3
++check list_table "$(ssm list vol)" $crypt_vol3 $SSM_CRYPT_DEFAULT_POOL none crypt
++
++pass | ssm create --fs ext4 -e plain $dev4 $mnt1
++check mountpoint $crypt_vol4 $mnt1
++check crypt_vol_field $crypt_vol4 type PLAIN
++check crypt_vol_field $crypt_vol4 device $dev4
++check list_table "$(ssm list vol)" $crypt_vol4 $SSM_CRYPT_DEFAULT_POOL none ext4 none none crypt
++ssm list
++umount $mnt1
++ssm -f remove ${DEV}/$crypt_vol1
++
++pass | ssm create --fs ext3 -s 50M -e plain $dev1 $mnt1
++check mountpoint $crypt_vol1 $mnt1
++check crypt_vol_field $crypt_vol1 type PLAIN
++check crypt_vol_field $crypt_vol1 device $dev1
++check crypt_vol_field $crypt_vol1 size 102400
++check list_table "$(ssm list vol)" $crypt_vol1 $SSM_CRYPT_DEFAULT_POOL none ext3 none none crypt
++umount $mnt1
++
++ssm remove ${DEV}/$crypt_vol1 ${DEV}/$crypt_vol3 ${DEV}/$crypt_vol2 ${DEV}/$crypt_vol4
++
++# Try non existing extension
++not ssm create -e enigma $dev1
++
++# Create encrypted lvm volume
++export SSM_LVM_DEFAULT_POOL=${vg1}_lvm
++export LVOL_PREFIX="lvol"
++lvol1=${LVOL_PREFIX}001
++lvol2=${LVOL_PREFIX}002
++lvol3=${LVOL_PREFIX}003
++lvol4=${LVOL_PREFIX}004
++export SSM_DEFAULT_BACKEND='lvm'
++
++pass | ssm create --fs xfs $dev1 $dev2 $mnt1 -e
++check mountpoint $crypt_vol1 $mnt1
++check crypt_vol_field $crypt_vol1 type LUKS1
++check crypt_vol_field $crypt_vol1 device ${SSM_LVM_DEFAULT_POOL}-$lvol1
++check list_table "$(ssm list vol)" $crypt_vol1 $SSM_CRYPT_DEFAULT_POOL none xfs none none crypt
++check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol1 $SSM_LVM_DEFAULT_POOL none linear
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol1 pv_count 2
++
++pass | ssm create -r0 $dev3 $dev4 -e plain
++check crypt_vol_field $crypt_vol2 type PLAIN
++check crypt_vol_field $crypt_vol2 device ${SSM_LVM_DEFAULT_POOL}-$lvol2
++check list_table "$(ssm list vol)" $crypt_vol2 $SSM_CRYPT_DEFAULT_POOL none crypt
++check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol2 $SSM_LVM_DEFAULT_POOL none striped
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol2 pv_count 4
++
++pass | ssm create $dev5 -e luks
++check crypt_vol_field $crypt_vol3 type LUKS1
++check crypt_vol_field $crypt_vol3 device ${SSM_LVM_DEFAULT_POOL}-$lvol3
++check list_table "$(ssm list vol)" $crypt_vol3 $SSM_CRYPT_DEFAULT_POOL none crypt
++check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol3 $SSM_LVM_DEFAULT_POOL none linear
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol3 pv_count 5
++
++pass | ssm create -e plain --fs xfs -r10 -s ${DEV_SIZE}M $dev6 $dev7 $dev8 $dev9 $mnt2
++check mountpoint $crypt_vol4 $mnt2
++check crypt_vol_field $crypt_vol4 type PLAIN
++check crypt_vol_field $crypt_vol4 device ${SSM_LVM_DEFAULT_POOL}-$lvol4
++check list_table "$(ssm list vol)" $crypt_vol4 $SSM_CRYPT_DEFAULT_POOL 104.00M xfs none none crypt
++check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol4 $SSM_LVM_DEFAULT_POOL 104.00M raid10
++check lv_field $SSM_LVM_DEFAULT_POOL/$lvol4 pv_count 9
++
++ssm list
++umount $mnt1
++umount $mnt2
++ssm -f remove ${DEV}/$crypt_vol1 ${DEV}/$crypt_vol3 ${DEV}/$crypt_vol2 ${DEV}/$crypt_vol4
++ssm  -f remove $SSM_LVM_DEFAULT_POOL
++
++ssm create $dev1 $dev2
++ssm list
++pass | ssm -b crypt create $DM_DEV_DIR/$SSM_LVM_DEFAULT_POOL/$lvol1
++check crypt_vol_field $crypt_vol1 type LUKS1
++check crypt_vol_field $crypt_vol1 device ${SSM_LVM_DEFAULT_POOL}-$lvol1
++check list_table "$(ssm list vol)" $crypt_vol1 $SSM_CRYPT_DEFAULT_POOL none crypt
++check list_table "$(ssm list vol)" $SSM_LVM_DEFAULT_POOL/$lvol1 $SSM_LVM_DEFAULT_POOL none linear
++
++ssm remove ${DEV}/$crypt_vol1
++ssm  -f remove $SSM_LVM_DEFAULT_POOL
+diff --git a/tests/bashtests/013-lvm-check.sh b/tests/bashtests/013-lvm-check.sh
+new file mode 100644
+index 0000000..11a70cb
+--- /dev/null
++++ b/tests/bashtests/013-lvm-check.sh
+@@ -0,0 +1,130 @@
++#!/bin/bash
++#
++# (C)2013 Red Hat, Inc., Jimmy Pan <jipan@redhat.com>
++#
++# This program is free software: you can redistribute it and/or modify
++# it under the terms of the GNU General Public License as published by
++# the Free Software Foundation, either version 2 of the License, or
++# (at your option) any later version.
++#
++# This program is distributed in the hope that it will be useful,
++# but WITHOUT ANY WARRANTY; without even the implied warranty of
++# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++# GNU General Public License for more details.
++#
++# You should have received a copy of the GNU General Public License
++# along with this program.  If not, see <http://www.gnu.org/licenses/>.
++
++
++export test_name='013-lvm-check'
++export test_description='Exercise ssm lvm check'
++
++. lib/test
++
++DEV_COUNT=10
++DEV_SIZE=100
++aux prepare_devs $DEV_COUNT $DEV_SIZE
++TEST_DEVS=$(cat DEVICES)
++export SSM_DEFAULT_BACKEND='lvm'
++export LVOL_PREFIX="lvol"
++export SSM_LVM_DEFAULT_POOL=$vg1
++export SSM_NONINTERACTIVE='1'
++lvol1=${LVOL_PREFIX}001
++lvol2=${LVOL_PREFIX}002
++lvol3=${LVOL_PREFIX}003
++
++
++pool1=$vg2
++pool2=$vg3
++
++TEST_FS=
++which mkfs.ext2 && grep -E "^\sext[234]$" /proc/filesystems && TEST_FS+="ext2 "
++which mkfs.ext3 && grep -E "^\sext[34]$" /proc/filesystems && TEST_FS+="ext3 "
++which mkfs.ext4 && grep -E "^\sext4$" /proc/filesystems && TEST_FS+="ext4 "
++which mkfs.xfs  && grep -E "^\sxfs$" /proc/filesystems && TEST_FS+="xfs"
++
++filesystem_check()
++{
++	if [ $# -lt 3 ] ; then
++		echo Usage: filesystem_check pool volume filesystem
++		exit 1
++	fi
++	local pool=$1
++	local vol=$2
++	local fs=$3
++	local name=$pool/$vol
++	local path=`lvs --noheadings -o lv_path $name`
++	if [[ $fs == ext[234] ]] ; then
++		e2fsck -n $path
++	elif [[ $fs == xfs ]] ; then
++		xfs_repair -n $path
++	else
++		echo Invalid fs type
++		exit 1
++	fi
++}
++
++
++# No filesystem should fail
++ssm create $dev1
++not ssm check $SSM_LVM_DEFAULT_POOL/$lvol1
++ssm -f remove -a
++
++# Loop for different filesystems
++for fs in $TEST_FS ; do
++	# Test check of a volume with one device
++	ssm create --fs $fs -p $SSM_LVM_DEFAULT_POOL $dev1
++	ret1=0
++	filesystem_check $SSM_LVM_DEFAULT_POOL $lvol1 $fs || ret1=$?
++	ret2=0
++	ssm check $SSM_LVM_DEFAULT_POOL/$lvol1 || ret2=$?
++	test "$ret1" -eq "$ret2" || [[ "$ret1" -ne 0 && "$ret2" -ne 0 ]]
++	ret2=0
++	ssm check `lvs --noheadings -o lv_path $SSM_LVM_DEFAULT_POOL/$lvol1` || ret2=$?
++	test "$ret1" -eq "$ret2" || [[ "$ret1" -ne 0 && "$ret2" -ne 0 ]]
++
++	# Test check of a volume with one device with one device has specified
++	# size and on two devices
++	ssm create -p $pool1 --fs $fs -s $((DEV_SIZE+20))m $dev{2,3}
++	ret1=0
++	filesystem_check $pool1 $lvol1 $fs || ret1=$?
++	ret2=0
++	ssm check $pool1/$lvol1 | ret2=$?
++	test "$ret1" -eq "$ret2" || [[ "$ret1" -ne 0 && "$ret2" -ne 0 ]]
++	ret2=0
++	ssm check `lvs --noheadings -o lv_path $pool1/$lvol1` || ret2=$?
++	test "$ret1" -eq "$ret2" || [[ "$ret1" -ne 0 && "$ret2" -ne 0 ]]
++
++	# Test check of volumes from the same pools
++	ssm create -p $pool2 --fs $fs $dev{4,5,6}
++	ssm create --fs $fs $dev{7,8} -p $pool2
++	ret1=0
++	filesystem_check $pool2 $lvol1 $fs || ret1=$?
++	ret2=0
++	ssm check $pool2/$lvol1 || ret2=$?
++	test "$ret1" -eq "$ret2" || [[ "$ret1" -ne 0 && "$ret2" -ne 0 ]]
++	ret2=0
++	ssm check `lvs --noheadings -o lv_path $pool2/$lvol1` || ret2=$?
++	test "$ret1" -eq "$ret2" || [[ "$ret1" -ne 0 && "$ret2" -ne 0 ]]
++	ret1=0
++	filesystem_check $pool2 $lvol2 $fs || ret1=$?
++	ret2=0
++	ssm check $pool2/$lvol2 || ret2=$?
++	test "$ret1" -eq "$ret2" || [[ "$ret1" -ne 0 && "$ret2" -ne 0 ]]
++
++	# Test check of volumes from different pools at once
++	ret2=0
++	ssm check `lvs --noheadings -o lv_path $pool2/$lvol2` || ret2=$?
++	test "$ret1" -eq "$ret2" || [[ "$ret1" -ne 0 && "$ret2" -ne 0 ]]
++	vols="$SSM_LVM_DEFAULT_POOL/$lvol1 $pool1/$lvol1 $pool2/$lvol1 $pool2/$lvol2"
++	ssm check $vols | not grep -i fail
++	ssm check `lvs --noheadings -o lv_path $vols` | not grep -i fail
++
++	# Check invalid volume name should fail
++	not ssm check $pool2/$lvol2"nsdf"
++	ssm -f remove -a
++done
++
++# Some should fail
++not ssm check
++not ssm check non_existing
+diff --git a/tests/bashtests/lib/aux.sh b/tests/bashtests/lib/aux.sh
+index 6add5c3..11a101f 100644
+--- a/tests/bashtests/lib/aux.sh
++++ b/tests/bashtests/lib/aux.sh
+@@ -347,6 +347,7 @@ activation/polling_interval = 0
+ activation/snapshot_autoextend_percent = 50
+ activation/snapshot_autoextend_threshold = 50
+ activation/monitoring = 0
++global/use_lvmetad = 0
+ EOF
+     }
+ 
+diff --git a/tests/bashtests/lib/check.sh b/tests/bashtests/lib/check.sh
+index 31d8c2d..9a8f853 100644
+--- a/tests/bashtests/lib/check.sh
++++ b/tests/bashtests/lib/check.sh
+@@ -292,6 +292,35 @@ pvlv_counts()
+ 	vg_field $local_vg snap_count $num_snaps
+ }
+ 
++crypt_vol_field()
++{
++	data=$(cryptsetup status $1 2> /dev/null | grep $2 | sed -e 's/^[ \t]*//' || true)
++
++	expected=$3
++	case $2 in
++		"type")
++			actual=$(echo ${data##*type:} | sed -e 's/^[ \t]*//') ;;
++		"device")
++			actual=$(echo ${data##*device:} | sed -e 's/^[ \t]*//')
++			actual=$(basename $actual)
++			expected=$(basename $expected)
++			;;
++		"size")
++			actual=$(echo ${data##*size:} | sed -e 's/^[ \t]*//')
++			actual=${actual%% sectors}
++			;;
++		*)
++			echo "Unknown field $2"
++			exit 1
++			;;
++	esac
++
++	test "$actual" = "$expected" || {
++		echo "crypt_vol_field: volume=$1, field=$2, actual=$actual, expected=$expected"
++		exit 1
++	}
++}
++
+ btrfs_fs_field()
+ {
+ 	lines=$(btrfs filesystem show 2> /dev/null | grep -A 1 "'$1'" || true)
+diff --git a/tests/bashtests/set.sh b/tests/bashtests/set.sh
+index 1306a4e..d2fcf7d 100755
+--- a/tests/bashtests/set.sh
++++ b/tests/bashtests/set.sh
+@@ -15,6 +15,7 @@
+ # You should have received a copy of the GNU General Public License
+ # along with this program.  If not, see <http://www.gnu.org/licenses/>.
+ 
++chmod +x *.sh
+ for i in $(ls lib/*.sh); do
+ 	echo "$i -> ${i%%.sh}"
+ 	cp $i ${i%%.sh}
+diff --git a/tests/unittests/common.py b/tests/unittests/common.py
+index ec60ae2..58c5637 100644
+--- a/tests/unittests/common.py
++++ b/tests/unittests/common.py
+@@ -74,8 +74,8 @@ class MockSystemDataSource(unittest.TestCase):
+         misc.run = self.mock_run
+         self.get_partitions_orig = misc.get_partitions
+         misc.get_partitions = self.mock_get_partitions
+-        self.is_bdevice_orig = main.is_bdevice
+-        main.is_bdevice = self.mock_is_bdevice
++        self.is_bdevice_orig = misc.is_bdevice
++        misc.is_bdevice = self.mock_is_bdevice
+         self.is_directory_orig = main.is_directory
+         main.is_directory = self.mock_is_directory
+         self.check_create_item_orig = main.StorageHandle.check_create_item
+@@ -88,6 +88,8 @@ class MockSystemDataSource(unittest.TestCase):
+         misc.check_binary = self.mock_check_binary
+         self.send_udev_event_orig = misc.send_udev_event
+         misc.send_udev_event = self.mock_send_udev_event
++        self.get_fs_type_orig = misc.get_fs_type
++        misc.get_fs_type = self.mock_get_fs_type
+         self.dev_data = {}
+         self.vol_data = {}
+         self.pool_data = {}
+@@ -104,25 +106,32 @@ class MockSystemDataSource(unittest.TestCase):
+         self.mount_data = {}
+         misc.run = self.run_orig
+         misc.get_partitions = self.get_partitions_orig
+-        main.is_bdevice = self.is_bdevice_orig
++        misc.is_bdevice = self.is_bdevice_orig
+         main.is_directory = self.is_directory_orig
+         misc.get_mounts = self.get_mounts_orig
+         main.StorageHandle.check_create_item = self.check_create_item_orig
+         misc.temp_mount = self.temp_mount_orig
+         misc.check_binary = self.check_binary_orig
+         misc.send_udev_event = self.send_udev_event_orig
++        misc.get_fs_type = self.get_fs_type_orig
+         main.SSM_NONINTERACTIVE = False
+ 
+     def _cmdEq(self, out, index=-1):
+         self.assertEqual(self.run_data[index], out)
+ 
+-    def _checkCmd(self, command, args, expected=None):
++    def _cmdNotEq(self, out, index=-1):
++        self.assertNotEqual(self.run_data[index], out)
++
++    def _checkCmd(self, command, args, expected=None, NotEq=False):
+         self.run_data = []
+         for case in misc.permutations(args):
+             cmd = command + " " + " ".join(case)
+             main.main(cmd)
+             if expected:
+-                self._cmdEq(expected)
++		if NotEq:
++			self._cmdNotEq(expected)
++		else:
++			self._cmdEq(expected)
+ 
+     def mock_run(self, cmd, *args, **kwargs):
+         self.run_data.append(" ".join(cmd))
+@@ -166,7 +175,21 @@ class MockSystemDataSource(unittest.TestCase):
+             if path in self.directories:
+                 self._mpoint = path
+                 return
+-        return main.is_bdevice(path)
++        return misc.is_bdevice(path)
++
++    def mock_get_fs_type(self, device):
++        if device in self.vol_data:
++            if 'fstype' in self.vol_data[device]:
++                return self.vol_data[device]['fstype']
++            else:
++                return None
++        elif device in self.dev_data:
++            if 'fstype' in self.dev_data[device]:
++                return self.dev_data[device]['fstype']
++            else:
++                return None
++        else:
++                return None
+ 
+     def mock_send_udev_event(self, device, event):
+         pass
+@@ -211,6 +234,8 @@ class MockSystemDataSource(unittest.TestCase):
+         pool_data = self.pool_data[pool_name]
+         pool_free = float(pool_data['pool_free']) - vol_size
+         pool_used = float(pool_data['pool_used']) + vol_size
++	pool_data['pool_free'] = pool_free
++	pool_data['pool_used'] = pool_used
+         if mount:
+             self.pool_data[pool_name]['mount'] = mount
+             self._addDir(mount)
+diff --git a/tests/unittests/test_btrfs.py b/tests/unittests/test_btrfs.py
+index b755414..d1f8135 100644
+--- a/tests/unittests/test_btrfs.py
++++ b/tests/unittests/test_btrfs.py
+@@ -30,11 +30,11 @@ class BtrfsFunctionCheck(MockSystemDataSource):
+         self._addDevice('/dev/sda', 11489037516)
+         self._addDevice('/dev/sdb', 234566451)
+         self._addDevice('/dev/sdc', 2684354560)
+-        self._addDevice('/dev/sdc1', 894784853, 1)
++        self._addDevice('/dev/sdc1', 2042177280, 1)
+         self._addDevice('/dev/sdc2', 29826161, 2)
+         self._addDevice('/dev/sdc3', 1042177280, 3)
+         self._addDevice('/dev/sdd', 11673)
+-        self._addDevice('/dev/sde', 1042177280)
++        self._addDevice('/dev/sde', 1073741824)
+         main.SSM_DEFAULT_BACKEND = 'btrfs'
+ 
+         self.check_new_path_orig = btrfs.BtrfsPool._check_new_path
+@@ -118,8 +118,8 @@ class BtrfsFunctionCheck(MockSystemDataSource):
+             "mkfs.btrfs -L btrfs_pool -m raid0 -d raid0 -b 2858730232217 -f /dev/sda".format(default_pool))
+         self._checkCmd("ssm create", ['-r 0', '-s 2.6T', '/dev/sda'],
+             "mkfs.btrfs -L btrfs_pool -m raid0 -d raid0 -b 2858730232217 -f /dev/sda".format(default_pool))
+-        self._checkCmd("ssm create", ['-r 1', '-s 512k', '/dev/sda'],
+-            "mkfs.btrfs -L btrfs_pool -m raid1 -d raid1 -b 524288 -f /dev/sda".format(default_pool))
++        self._checkCmd("ssm create", ['-r 1', '-s 512k', '/dev/sda /dev/sdb'],
++            "mkfs.btrfs -L btrfs_pool -m raid1 -d raid1 -b 524288 -f /dev/sda /dev/sdb".format(default_pool))
+         self._checkCmd("ssm create", ['-r 10', '-s 10M', '/dev/sda'],
+             "mkfs.btrfs -L btrfs_pool -m raid10 -d raid10 -b 10485760 -f /dev/sda".format(default_pool))
+ 
+@@ -244,6 +244,8 @@ class BtrfsFunctionCheck(MockSystemDataSource):
+             "btrfs subvolume snapshot /mnt/mount /mnt/mount/new_snap")
+ 
+     def test_btrfs_resize(self):
++	# Btrfs resize not supported for now because it simply does not work
++	return
+         # Generate some storage data
+         self._addPool('default_pool', ['/dev/sda', '/dev/sdb'])
+         self._addPool('my_pool', ['/dev/sdc2', '/dev/sdc3'])
+@@ -265,9 +267,16 @@ class BtrfsFunctionCheck(MockSystemDataSource):
+             "btrfs filesystem resize 11723608063K /tmp/mount")
+         main.SSM_DEFAULT_BACKEND = 'btrfs'
+ 
+-        self._cmdEq("btrfs device add /dev/sde /tmp/mount", -2)
++        self._cmdNotEq("btrfs device add /dev/sde /tmp/mount", -2)
++
++	# Resize with enough space in the pool
+         self._checkCmd("ssm resize --size +1g", ['my_pool /dev/sde'],
+             "btrfs filesystem resize 1073052017K /mnt/test1")
++        self._cmdNotEq("btrfs device add /dev/sde /mnt/test1", -2)
++
++	# Resize without enough space in the pool
++        self._checkCmd("ssm resize --size +1t", ['my_pool /dev/sde'],
++            "btrfs filesystem resize 2145745265K /mnt/test1")
+         self._cmdEq("btrfs device add /dev/sde /mnt/test1", -2)
+ 
+         # Shrink volume
+@@ -285,16 +294,23 @@ class BtrfsFunctionCheck(MockSystemDataSource):
+             "btrfs filesystem resize 10240K /mnt/test1")
+ 
+         # Set volume and add devices
+-        self._checkCmd("ssm resize -s 12T default_pool /dev/sdc1 /dev/sde",
+-            [], "btrfs filesystem resize 12884901888K /tmp/mount")
++        self._checkCmd("ssm resize -s 20T default_pool /dev/sdc1 /dev/sde",
++            [], "btrfs filesystem resize 21474836480K /tmp/mount")
++        self.assertNotEqual(self.run_data[-2],
++            "btrfs device add /dev/sdc1 /dev/sde /tmp/mount")
++
++        self._checkCmd("ssm resize -s 22T default_pool /dev/sdc1 /dev/sde",
++            [], "btrfs filesystem resize 23622320128K /tmp/mount")
+         self.assertEqual(self.run_data[-2],
+             "btrfs device add /dev/sdc1 /dev/sde /tmp/mount")
+-        self._checkCmd("ssm resize -s 1T my_pool /dev/sdc1 /dev/sde",
+-            [], "btrfs filesystem resize 1073741824K /mnt/test1")
++
++        self._checkCmd("ssm resize -s 3T my_pool /dev/sdc1 /dev/sde",
++            [], "btrfs filesystem resize 3221225472K /mnt/test1")
+         self.assertEqual(self.run_data[-2],
+             "btrfs device add /dev/sdc1 /dev/sde /mnt/test1")
+-        self._checkCmd("ssm resize -s 1T my_pool /dev/sde /dev/sdc2",
+-            [], "btrfs filesystem resize 1073741824K /mnt/test1")
++
++        self._checkCmd("ssm resize -s 3T my_pool /dev/sde /dev/sdc2",
++            [], "btrfs filesystem resize 3221225472K /mnt/test1")
+         self.assertEqual(self.run_data[-2],
+             "btrfs device add /dev/sde /mnt/test1")
+ 
+@@ -308,6 +324,8 @@ class BtrfsFunctionCheck(MockSystemDataSource):
+         self.assertNotEqual(self.run_data[-2],
+             "btrfs device add /dev/sdc1 /dev/sde /mnt/test1")
+ 
++        self._checkCmd("ssm list",
++            [], "btrfs filesystem resize 12247891967K /tmp/mount")
+         # Extend volume and add devices
+         self._checkCmd("ssm resize -s +500G default_pool /dev/sdc1 /dev/sde",
+             [], "btrfs filesystem resize 12247891967K /tmp/mount")
+diff --git a/tests/unittests/test_lvm.py b/tests/unittests/test_lvm.py
+index 6f63fae..7af8a78 100644
+--- a/tests/unittests/test_lvm.py
++++ b/tests/unittests/test_lvm.py
+@@ -287,10 +287,16 @@ class LvmFunctionCheck(MockSystemDataSource):
+         self.assertEqual(self.run_data[-2],
+             "lvm vgextend default_pool /dev/sdc1 /dev/sde")
+ 
+-        # Set volume size
++        # Set volume size with sufficient amount of space
+         self._checkCmd("ssm resize -s 10G /dev/default_pool/vol003 /dev/sdc1 /dev/sde",
+             [], "lvm lvresize -L 10485760.0k /dev/default_pool/vol003")
+-        self.assertEqual(self.run_data[-2],
++        self.assertNotEqual(self.run_data[-2],
++            "lvm vgextend default_pool /dev/sdc1 /dev/sde")
++
++        # Set volume size without sufficient amount of space
++        self._checkCmd("ssm resize -s 10T /dev/default_pool/vol003 /dev/sdc1 /dev/sde",
++            [], "lvm lvresize -L 10737418240.0k /dev/default_pool/vol003")
++        self.assertNotEqual(self.run_data[-2],
+             "lvm vgextend default_pool /dev/sdc1 /dev/sde")
+ 
+         # Extend volume and add devices
+@@ -299,9 +305,15 @@ class LvmFunctionCheck(MockSystemDataSource):
+         self.assertEqual(self.run_data[-2],
+             "lvm vgextend default_pool /dev/sdc1 /dev/sde")
+ 
+-        # Extend volume
++        # Extend volume with ehough space in pool
+         self._checkCmd("ssm resize -s +10G /dev/default_pool/vol003 /dev/sdc1 /dev/sde",
+             [], "lvm lvresize -L 10486784.0k /dev/default_pool/vol003")
++        self.assertNotEqual(self.run_data[-2],
++            "lvm vgextend default_pool /dev/sdc1 /dev/sde")
++
++        # Extend volume without ehough space in pool
++        self._checkCmd("ssm resize -s +20T /dev/default_pool/vol003 /dev/sdc1 /dev/sde",
++            [], "lvm lvresize -L 21474837504.0k /dev/default_pool/vol003")
+         self.assertEqual(self.run_data[-2],
+             "lvm vgextend default_pool /dev/sdc1 /dev/sde")
+ 
+diff --git a/tests/unittests/test_ssm.py b/tests/unittests/test_ssm.py
+index 9a5d82d..e0a1d99 100644
+--- a/tests/unittests/test_ssm.py
++++ b/tests/unittests/test_ssm.py
+@@ -365,12 +365,12 @@ class SsmFunctionCheck(MockSystemDataSource):
+         # Set volume size
+         self._checkCmd("ssm resize -s 10G /dev/default_pool/vol003 /dev/sdc1 /dev/sde",
+             [], "vol resize /dev/default_pool/vol003 10485760.0 False")
+-        self.assertEqual(self.run_data[-2],
++        self.assertNotEqual(self.run_data[-2],
+             "pool extend default_pool /dev/sdc1 /dev/sde")
+ 
+         # Extend volume size with adding more devices
+-        self._checkCmd("ssm resize -s +10G /dev/default_pool/vol003 /dev/sdc1 /dev/sde",
+-            [], "vol resize /dev/default_pool/vol003 10486784.0 False")
++        self._checkCmd("ssm resize -s +12t /dev/default_pool/vol003 /dev/sdc1 /dev/sde",
++            [], "vol resize /dev/default_pool/vol003 12884902912.0 False")
+         self.assertEqual(self.run_data[-2],
+             "pool extend default_pool /dev/sdc1 /dev/sde")
+ 
+@@ -428,9 +428,9 @@ class SsmFunctionCheck(MockSystemDataSource):
+         # Number of stripes must not exceed number of devices
+         self.assertRaises(problem.GeneralError, main.main, "ssm create -r 1 -s 2.6T -I 16 -i 4 /dev/sda")
+ 
+-        self._checkCmd("ssm create", ['-r 1', '-s 2.6T', '-I 16', '/dev/sda'],
+-            "pool create {0} 2791728742.40 1 16 /dev/sda".format(main.DEFAULT_DEVICE_POOL))
+-        self._cmdEq("pool new {0} /dev/sda".format(main.DEFAULT_DEVICE_POOL), -2)
++        self._checkCmd("ssm create", ['-r 1', '-s 2.6T', '-I 16', '/dev/sda /dev/sdb'],
++            "pool create {0} 2791728742.40 1 16 /dev/sda /dev/sdb".format(main.DEFAULT_DEVICE_POOL))
++        self._cmdEq("pool new {0} /dev/sda /dev/sdb".format(main.DEFAULT_DEVICE_POOL), -2)
+ 
+         # Create volume using single device from non existent my_pool
+         self._checkCmd("ssm create", ['--pool my_pool', '/dev/sda'],
+@@ -760,13 +760,14 @@ class PoolInfo(MyInfo):
+         misc.run(cmd)
+ 
+     def create(self, pool, size='', name='', devs='',
+-               raid=None):
++               options=None):
++        options = options or {}
+         if type(devs) is not list:
+             devices = [devs]
+-        if raid:
+-            stripes = raid['stripes']
+-            stripesize = raid['stripesize']
+-            level = raid['level']
++        if 'raid' in options:
++            stripes = options['stripes']
++            stripesize = options['stripesize']
++            level = options['raid']
+         else:
+             stripes = stripesize = level = ""
+         misc.run([self.f, self.v, self.y, 'pool create', pool, size, name,

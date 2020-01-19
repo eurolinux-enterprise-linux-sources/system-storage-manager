@@ -1,0 +1,110 @@
+From 9691fb09d5751b9ae454be9c155a7c4bf24705d4 Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Tue, 25 Feb 2014 13:04:19 +0100
+Subject: [PATCH 4/5] misc: Run udevadm settle prior running wipefs
+
+To further avoid racing with udev, especially when removing btrfs file
+system we have to run udevadm settle befor wipefs. Also allow wipefs to
+accept and wipe multiple devices.
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+---
+ ssmlib/backends/btrfs.py      |  5 ++++-
+ ssmlib/misc.py                |  8 ++++++--
+ tests/unittests/test_btrfs.py | 28 +++++++++-------------------
+ 3 files changed, 19 insertions(+), 22 deletions(-)
+
+diff --git a/ssmlib/backends/btrfs.py b/ssmlib/backends/btrfs.py
+index b0a486f..0483eb9 100644
+--- a/ssmlib/backends/btrfs.py
++++ b/ssmlib/backends/btrfs.py
+@@ -308,10 +308,13 @@ class Btrfs(template.Backend):
+             if self.problem.check(self.problem.FS_MOUNTED,
+                                   [name, self._vol[name]['mount']]):
+                 misc.do_umount(self._vol[name]['real_dev'], all_targets=True)
++        devices = []
+         for dev in self._dev.itervalues():
+             if dev['pool_name'] != name:
+                 continue
+-            misc.wipefs(dev['dev_name'], 'btrfs')
++            devices.append(dev['dev_name'])
++        if len(devices) > 0:
++            misc.wipefs(devices, 'btrfs')
+ 
+ 
+ class BtrfsVolume(Btrfs, template.BackendVolume):
+diff --git a/ssmlib/misc.py b/ssmlib/misc.py
+index 24b7dd9..473568b 100644
+--- a/ssmlib/misc.py
++++ b/ssmlib/misc.py
+@@ -358,10 +358,14 @@ def get_dmnumber(name):
+     return dmnumber
+ 
+ 
+-def wipefs(device, signatures):
++def wipefs(devices, signatures):
++    if type(devices) is not list:
++        devices = [devices]
+     if type(signatures) is not list:
+         signatures = [signatures]
+-    command = ['wipefs', '-a', '-t', ','.join(signatures), device]
++    command = ['wipefs', '-a', '-t', ','.join(signatures)] + devices
++    # Avoid race with udev
++    run(['udevadm', 'settle'], stderr=False, can_fail=True)
+     run(command)
+ 
+ 
+diff --git a/tests/unittests/test_btrfs.py b/tests/unittests/test_btrfs.py
+index 2b6cd8e..1132bd6 100644
+--- a/tests/unittests/test_btrfs.py
++++ b/tests/unittests/test_btrfs.py
+@@ -167,12 +167,9 @@ class BtrfsFunctionCheck(MockSystemDataSource):
+         self._addPool('my_pool', ['/dev/sdc2', '/dev/sdc3', '/dev/sdc1'])
+ 
+         # remove volume
+-        self._checkCmd("ssm remove default_pool", [], "wipefs -a -t btrfs /dev/sda")
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdb", -2)
++        self._checkCmd("ssm remove default_pool", [], "wipefs -a -t btrfs /dev/sdb /dev/sda")
+ 
+-        self._checkCmd("ssm remove my_pool", [], "wipefs -a -t btrfs /dev/sdc3")
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdc1", -2)
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdc2", -3)
++        self._checkCmd("ssm remove my_pool", [], "wipefs -a -t btrfs /dev/sdc2 /dev/sdc1 /dev/sdc3")
+ 
+         # remove subvolume
+         self._addVol('vol001', 117283225, 1, 'default_pool', ['/dev/sda'], '/mnt/test')
+@@ -189,24 +186,17 @@ class BtrfsFunctionCheck(MockSystemDataSource):
+         self._addPool('other_pool', ['/dev/sdd', '/dev/sde'])
+         self._checkCmd("ssm remove /dev/sdd /dev/sdb other_pool my_pool default_pool:/dev/default_pool/vol001", [],
+             "btrfs subvolume delete /mnt/test")
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdc1", -2)
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdc3", -3)
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdc2", -4)
+-        self._cmdEq("wipefs -a -t btrfs /dev/sde", -5)
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdd", -6)
+-        self._cmdEq("btrfs device delete /dev/sdb /mnt/test", -7)
+-        self._cmdEq("btrfs device delete /dev/sdd /tmp/mount", -8)
++        self._cmdEq("wipefs -a -t btrfs /dev/sdc2 /dev/sdc3 /dev/sdc1", -2)
++        self._cmdEq("wipefs -a -t btrfs /dev/sdd /dev/sde", -4)
++        self._cmdEq("btrfs device delete /dev/sdb /mnt/test", -6)
++        self._cmdEq("btrfs device delete /dev/sdd /tmp/mount", -7)
+ 
+         self._removeMount("/dev/sda")
+         # remove all
+         self._checkCmd("ssm remove --all", [],
+-            "wipefs -a -t btrfs /dev/sde")
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdd", -2)
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdc1", -3)
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdc3", -4)
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdc2", -5)
+-        self._cmdEq("wipefs -a -t btrfs /dev/sda", -6)
+-        self._cmdEq("wipefs -a -t btrfs /dev/sdb", -7)
++            "wipefs -a -t btrfs /dev/sdd /dev/sde")
++        self._cmdEq("wipefs -a -t btrfs /dev/sdc2 /dev/sdc3 /dev/sdc1", -3)
++        self._cmdEq("wipefs -a -t btrfs /dev/sdb /dev/sda", -5)
+ 
+         # TODO
+         # remove force
+-- 
+1.8.3.1
+

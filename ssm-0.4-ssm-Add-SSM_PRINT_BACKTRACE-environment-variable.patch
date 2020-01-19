@@ -1,0 +1,57 @@
+From e5577724d859ca19e6b3074f05f25bc43c748a43 Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Thu, 16 Jan 2014 15:08:11 +0100
+Subject: [PATCH 09/10] ssm: Add SSM_PRINT_BACKTRACE environment variable
+
+Currently we're catching all the SsmError exception and just print out
+simple error message. This is fine, however it makes debugging harder in
+some cases, so add SSM_PRINT_BACKTRACE environment variable which
+enables us to print traceback when needed. Simply set the variable to
+yes, true, or 1 and ssm will print traceback in case of error.
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+---
+ bin/ssm | 20 +++++++++++++++++++-
+ 1 file changed, 19 insertions(+), 1 deletion(-)
+
+diff --git a/bin/ssm b/bin/ssm
+index baa3c60..6058f64 100755
+--- a/bin/ssm
++++ b/bin/ssm
+@@ -19,8 +19,23 @@
+ 
+ import os
+ import sys
++import traceback
+ from ssmlib import problem
+ 
++
++# Should we print backtrace on error, or suppress it ?
++# Suppress it by default.
++try:
++    SSM_PRINT_BACKTRACE = os.environ['SSM_PRINT_BACKTRACE']
++    if SSM_PRINT_BACKTRACE.upper() in ['YES', 'TRUE', '1']:
++        SSM_PRINT_BACKTRACE = True
++    else:
++        SSM_PRINT_BACKTRACE = False
++except KeyError:
++    SSM_PRINT_BACKTRACE = False
++
++
++
+ try:
+     from ssmlib import main
+ 
+@@ -32,5 +47,8 @@ try:
+                 sys.exit("\nRoot privileges required to run this script!\n")
+         sys.exit(main.main())
+ except problem.SsmError, err:
+-    print str(err)
++    if SSM_PRINT_BACKTRACE is True:
++        traceback.print_exc(file=sys.stdout)
++    else:
++        print str(err)
+     sys.exit(err.errcode)
+-- 
+1.8.3.1
+

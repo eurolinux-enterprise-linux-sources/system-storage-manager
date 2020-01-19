@@ -1,0 +1,43 @@
+From c12e67892e8919e92f1992daa5a9ad6e334776b1 Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Fri, 22 Jun 2018 15:52:54 +0200
+Subject: [PATCH 5/5] tests: Do not attpemt to mknod loop devices if not
+ necessary
+
+This is just one part of upstream commit
+4af61897f92578a7c0b8bb0c65760a156b693ab3. For some reason the mknod was
+breaking tests.
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+---
+ tests/bashtests/lib/aux.sh | 7 +++----
+ 1 file changed, 3 insertions(+), 4 deletions(-)
+
+diff --git a/tests/bashtests/lib/aux.sh b/tests/bashtests/lib/aux.sh
+index 866048f..9542094 100644
+--- a/tests/bashtests/lib/aux.sh
++++ b/tests/bashtests/lib/aux.sh
+@@ -137,10 +137,6 @@ prepare_loop() {
+ 	test ! -e LOOP
+ 	test -n "$DM_DEV_DIR"
+ 
+-	for i in 0 1 2 3 4 5 6 7; do
+-		test -e $DM_DEV_DIR/loop$i || mknod $DM_DEV_DIR/loop$i b 7 $i
+-	done
+-
+         echo -n .
+ 
+ 	LOOPFILE="$PWD/test.img"
+@@ -152,6 +148,9 @@ prepare_loop() {
+ 		:
+ 	else
+ 		# no -f support 
++		for i in 0 1 2 3 4 5 6 7; do
++			test -e $DM_DEV_DIR/loop$i || mknod $DM_DEV_DIR/loop$i b 7 $i
++		done
+ 		# Iterate through $DM_DEV_DIR/loop{,/}{0,1,2,3,4,5,6,7}
+ 		for slash in '' /; do
+ 			for i in 0 1 2 3 4 5 6 7; do
+-- 
+2.17.1
+

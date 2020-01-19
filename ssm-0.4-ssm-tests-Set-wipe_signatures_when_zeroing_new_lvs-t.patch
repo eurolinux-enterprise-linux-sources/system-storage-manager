@@ -1,0 +1,30 @@
+From bba22c9cec361f325d51d927e8e9dd0fde951334 Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Tue, 25 Feb 2014 11:53:24 +0100
+Subject: [PATCH 3/5] ssm tests: Set wipe_signatures_when_zeroing_new_lvs to
+ zero
+
+Lvm changed its behaviour and now it will attempt to wipe any signature
+on newly created volume. While this make sense it is not needed in our
+test suite so just disable it.
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+---
+ tests/bashtests/lib/aux.sh | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/tests/bashtests/lib/aux.sh b/tests/bashtests/lib/aux.sh
+index f5159f2..866048f 100644
+--- a/tests/bashtests/lib/aux.sh
++++ b/tests/bashtests/lib/aux.sh
+@@ -349,6 +349,7 @@ activation/snapshot_autoextend_percent = 50
+ activation/snapshot_autoextend_threshold = 50
+ activation/monitoring = 0
+ global/use_lvmetad = 0
++allocation/wipe_signatures_when_zeroing_new_lvs = 0
+ EOF
+     }
+ 
+-- 
+1.8.3.1
+

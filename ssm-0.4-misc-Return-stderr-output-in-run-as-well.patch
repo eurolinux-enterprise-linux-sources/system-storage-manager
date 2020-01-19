@@ -1,0 +1,142 @@
+From b63fd2a353ae6d21a2b600bf4a9b0b904fa00af1 Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Fri, 22 Jun 2018 13:36:59 +0200
+Subject: [PATCH 1/5] misc: Return stderr output in run() as well
+
+Currently we only return status code, standard output with run()
+function. We can redirect stderr into stdout, however sometimes we might
+need to have stderr output separetely. Implement that.
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+---
+ ssmlib/backends/btrfs.py      |  3 ++-
+ ssmlib/misc.py                | 13 ++++++-------
+ test.py                       |  2 +-
+ tests/unittests/common.py     |  2 +-
+ tests/unittests/test_btrfs.py |  2 +-
+ tests/unittests/test_lvm.py   |  2 +-
+ tests/unittests/test_ssm.py   |  2 +-
+ 7 files changed, 13 insertions(+), 13 deletions(-)
+
+diff --git a/ssmlib/backends/btrfs.py b/ssmlib/backends/btrfs.py
+index e5d5158..afd7826 100644
+--- a/ssmlib/backends/btrfs.py
++++ b/ssmlib/backends/btrfs.py
+@@ -171,7 +171,8 @@ class Btrfs(template.Backend):
+             command.append('-a')
+         if list_snapshots:
+             command.append('-s')
+-        ret, output = misc.run(command + [mount], stdout=False, can_fail=True)
++        ret, output, err = misc.run(command + [mount], stdout=False,
++                                    can_fail=True)
+         if ret:
+             command = ['btrfs', 'subvolume', 'list']
+             if list_snapshots:
+diff --git a/ssmlib/misc.py b/ssmlib/misc.py
+index 9cbb1d1..c2cc246 100644
+--- a/ssmlib/misc.py
++++ b/ssmlib/misc.py
+@@ -31,10 +31,12 @@ TMP_MOUNTED = []
+ 
+ if sys.version < '3':
+     def __str__(x):
+-        return str(x)
++        if x is not None:
++            return str(x)
+ else:
+     def __str__(x):
+-        return str(x, encoding='utf-8', errors='strict')
++        if x is not None:
++            return str(x, encoding='utf-8', errors='strict')
+ 
+ 
+ def get_unit_size(string):
+@@ -291,7 +293,7 @@ def get_signature(device, types=None):
+         command.extend(['-u', types])
+     command.append(device)
+ 
+-    ret, output = run(command, can_fail=True, stderr=False)
++    ret, output, err = run(command, can_fail=True, stderr=False)
+     output = output.strip()
+ 
+     if ret:
+@@ -510,10 +512,7 @@ def run(cmd, show_cmd=False, stdout=False, stderr=True, can_fail=False,
+     if not return_stdout:
+         output = None
+ 
+-    if output is not None:
+-        return (proc.returncode, __str__(output))
+-    else:
+-        return (proc.returncode, output)
++    return (proc.returncode, __str__(output), __str__(error))
+ 
+ 
+ def chain(*iterables):
+diff --git a/test.py b/test.py
+index 414f8c8..3702fc5 100644
+--- a/test.py
++++ b/test.py
+@@ -56,7 +56,7 @@ def run_bash_tests():
+         bad_file = re.sub("\.sh$",".bad", script)
+         if os.access(bad_file, os.R_OK):
+             os.remove(bad_file)
+-        ret, out = misc.run(['./' + script], stdout=False, can_fail=True)
++        ret, out, err = misc.run(['./' + script], stdout=False, can_fail=True)
+         if ret:
+             print("\033[91m[FAILED]\033[0m")
+             failed.append(script)
+diff --git a/tests/unittests/common.py b/tests/unittests/common.py
+index 16cdb5a..1aa2204 100644
+--- a/tests/unittests/common.py
++++ b/tests/unittests/common.py
+@@ -57,7 +57,7 @@ class BaseStorageHandleInit(unittest.TestCase):
+         output = ""
+         if 'return_stdout' in kwargs and not kwargs['return_stdout']:
+             output = None
+-        return (0, output)
++        return (0, output, None)
+ 
+     def tearDown(self):
+         self.storage = None
+diff --git a/tests/unittests/test_btrfs.py b/tests/unittests/test_btrfs.py
+index c1743af..0c11ba6 100644
+--- a/tests/unittests/test_btrfs.py
++++ b/tests/unittests/test_btrfs.py
+@@ -84,7 +84,7 @@ class BtrfsFunctionCheck(MockSystemDataSource):
+                               v_data['dev_name'])
+         if 'return_stdout' in kwargs and not kwargs['return_stdout']:
+             output = None
+-        return (0, output)
++        return (0, output, None)
+ 
+     def test_btrfs_create(self):
+         default_pool = btrfs.SSM_BTRFS_DEFAULT_POOL
+diff --git a/tests/unittests/test_lvm.py b/tests/unittests/test_lvm.py
+index ae39b39..b437ba7 100644
+--- a/tests/unittests/test_lvm.py
++++ b/tests/unittests/test_lvm.py
+@@ -64,7 +64,7 @@ class LvmFunctionCheck(MockSystemDataSource):
+                         data['origin'], data['attr'])
+         if 'return_stdout' in kwargs and not kwargs['return_stdout']:
+             output = None
+-        return (0, output)
++        return (0, output, None)
+ 
+     def test_lvm_create(self):
+         default_pool = lvm.SSM_LVM_DEFAULT_POOL
+diff --git a/tests/unittests/test_ssm.py b/tests/unittests/test_ssm.py
+index 2de2ea5..06fbd12 100644
+--- a/tests/unittests/test_ssm.py
++++ b/tests/unittests/test_ssm.py
+@@ -332,7 +332,7 @@ class SsmFunctionCheck(MockSystemDataSource):
+             return self.dev_data
+         if 'return_stdout' in kwargs and not kwargs['return_stdout']:
+             output = None
+-        return (0, output)
++        return (0, output, None)
+ 
+     def test_resize(self):
+         # Generate some storage data
+-- 
+2.17.1
+
