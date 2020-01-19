@@ -1,6 +1,6 @@
 Name:           system-storage-manager
 Version:        0.4
-Release:        2%{?dist}
+Release:        5%{?dist}
 Summary:        A single tool to manage your storage
 
 Group:          System Environment/Base
@@ -10,6 +10,23 @@ Source0:        http://downloads.sourceforge.net/storagemanager/%{name}-%{versio
 
 
 Patch1: ssm-0.4-ssm-big-update-no-1.patch
+Patch2: ssm-0.4-misc-get_unit_size-accept-different-unit-formats.patch
+Patch3: ssm-0.4-ssm-btrfs-backend-try-to-find-the-real-device.patch
+Patch4: ssm-0.4-ssm-force-btrfs-device-add.patch
+Patch5: ssm-0.4-tests-Fix-they-way-we-gather-information-about-btrfs.patch
+Patch6: ssm-0.4-tests-Make-btrfs-recognize-devices-from-tests-suite-.patch
+Patch7: ssm-0.4-test-008-Device-count-should-go-down-after-removing-.patch
+Patch8: ssm-0.4-misc-Fix-get_device_size-to-work-with-partitions-cor.patch
+Patch9: ssm-0.4-ssm-Suppress-backtrace-if-command-failed.patch
+Patch10: ssm-0.4-ssm-Add-SSM_PRINT_BACKTRACE-environment-variable.patch
+Patch11: ssm-0.4-misc-Use-wipefs-a-in-misc.wipefs-helper.patch
+Patch12: ssm-0.4-ssm-Fix-various-problems-found-by-pylint.patch
+Patch13: ssm-0.4-ssm-Remove-unnecessary-usr-bin-env-python.patch
+Patch14: ssm-0.4-lvm-Ask-user-when-shrining-inactive-logical-volume.patch
+Patch15: ssm-0.4-ssm-tests-Use-udevadm-settle-to-avoid-race-with-udev.patch
+Patch16: ssm-0.4-ssm-tests-Set-wipe_signatures_when_zeroing_new_lvs-t.patch
+Patch17: ssm-0.4-misc-Run-udevadm-settle-prior-running-wipefs.patch
+Patch18: ssm-0.4-ssm-Use-xfs_reparir-to-check-xfs-file-system-consist.patch
 
 
 BuildArch:      noarch
@@ -48,6 +65,40 @@ technologies via a single unified interface.
 # Contains upstream patches
 # 39eb3058a02a2b482c4c5bdf0120b70605a6b23a..4210d7560585f2a241eaa5ebc364c98d49f565d2
 %patch1 -p1
+# misc: get_unit_size() accept different unit formats
+%patch2 -p1
+# ssm: btrfs backend: try to find the real device
+%patch3 -p1
+# ssm: force btrfs device add
+%patch4 -p1
+# tests: Fix they way we gather information about btrfs
+%patch5 -p1
+# tests: Make btrfs recognize devices from tests suite properly
+%patch6 -p1
+# test 008: Device count should go down after removing a device
+%patch7 -p1
+# misc: Fix get_device_size to work with partitions correctly
+%patch8 -p1
+# ssm: Suppress backtrace if command failed
+%patch9 -p1
+# ssm: Add SSM_PRINT_BACKTRACE environment variable
+%patch10 -p1
+# misc: Use wipefs -a in misc.wipefs() helper
+%patch11 -p1
+# ssm: Fix various problems found by pylint
+%patch12 -p1
+# ssm: Remove unnecessary /usr/bin/env python
+%patch13 -p1
+# ssm: Remove unnecessary /usr/bin/env python
+%patch14 -p1
+# lvm: Ask user when shrining inactive logical volume
+%patch15 -p1
+# ssm tests: Use udevadm settle to avoid race with udev
+%patch16 -p1
+# ssm tests: Set wipe_signatures_when_zeroing_new_lvs to
+%patch17 -p1
+# misc: Run udevadm settle prior running wipefs
+%patch18 -p1
 
 %build
 # nothing to build
@@ -71,6 +122,19 @@ make test
 
 
 %changelog
+* Tue Mar 4 2014 Lukas Czerner <lczerner@redhat.com> 0.4-5
+- Fix some "device or resource busy" failures in ssm test suite (#1071881)
+
+* Thu Jan 16 2014 Lukas Czerner <lczerner@redhat.com> 0.4-4
+- Suppress backtrace when a command fails (#1054349)
+- Fix ssm to recognize units in new btrfs output properly (#1052327)
+- Use correct sysfs file to get size for a partition (#1053651)
+- Fix ssm to be able add a device with signature to btrfs file system (#1053741)
+- Resognize btrfs devices from new btrfs output properly (#1052330)
+
+* Fri Dec 27 2013 Daniel Mach <dmach@redhat.com> - 0.4-3
+- Mass rebuild 2013-12-27
+
 * Wed Oct 9 2013 Lukas Czerner <lczerner@redhat.com> 0.4-2
 - Remove btrfs resize support (#986116)
 - Unmount all btrfs subvolumes when removing a filesystem

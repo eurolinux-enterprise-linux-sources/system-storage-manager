@@ -1,0 +1,39 @@
+From e2c869393f9c1c0f1c84e1a817f411a2056d820e Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Thu, 16 Jan 2014 14:44:10 +0100
+Subject: [PATCH 08/10] ssm: Suppress backtrace if command failed
+
+Currently when command failed in misc.run(), RuntimeError() exception is
+raised and backtrace is printed to the output. However this is not
+desirable, so use problem.CommandFailed() exception which allows us to
+catch it and print out reasonable error message.
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+---
+ ssmlib/misc.py | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/ssmlib/misc.py b/ssmlib/misc.py
+index dbfa6b1..3d99c07 100644
+--- a/ssmlib/misc.py
++++ b/ssmlib/misc.py
+@@ -24,6 +24,7 @@ import stat
+ import tempfile
+ import threading
+ import subprocess
++from ssmlib import problem
+ 
+ # List of temporary mount points which should be cleaned up
+ # before exiting
+@@ -480,7 +481,7 @@ def run(cmd, show_cmd=False, stdout=False, stderr=True, can_fail=False,
+             print output
+         if error is not None:
+             print error
+-        raise RuntimeError(err_msg)
++        raise problem.CommandFailed(err_msg)
+ 
+     if not return_stdout:
+         output = None
+-- 
+1.8.3.1
+

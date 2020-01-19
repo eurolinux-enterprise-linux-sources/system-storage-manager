@@ -1,0 +1,124 @@
+From 7a27177855ea2466d01dd201571f66ddea6c7cc8 Mon Sep 17 00:00:00 2001
+From: Lukas Czerner <lczerner@redhat.com>
+Date: Fri, 17 Jan 2014 16:29:50 +0100
+Subject: [PATCH] ssm: Remove unnecessary /usr/bin/env python
+
+Those are not executable script and should not contain this line.
+
+Signed-off-by: Lukas Czerner <lczerner@redhat.com>
+---
+ ssmlib/__init__.py          | 2 --
+ ssmlib/backends/__init__.py | 2 --
+ ssmlib/backends/btrfs.py    | 2 --
+ ssmlib/backends/crypt.py    | 2 --
+ ssmlib/backends/lvm.py      | 2 --
+ ssmlib/backends/md.py       | 2 --
+ ssmlib/backends/template.py | 2 --
+ ssmlib/main.py              | 2 --
+ ssmlib/misc.py              | 2 --
+ ssmlib/problem.py           | 2 --
+ 10 files changed, 20 deletions(-)
+
+diff --git a/ssmlib/__init__.py b/ssmlib/__init__.py
+index 0a49de2..7e5e4fd 100644
+--- a/ssmlib/__init__.py
++++ b/ssmlib/__init__.py
+@@ -1,5 +1,3 @@
+-#!/usr/bin/env python
+-#
+ # (C)2011 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
+ #
+ # This program is free software: you can redistribute it and/or modify
+diff --git a/ssmlib/backends/__init__.py b/ssmlib/backends/__init__.py
+index 5720e3d..2046e83 100644
+--- a/ssmlib/backends/__init__.py
++++ b/ssmlib/backends/__init__.py
+@@ -1,5 +1,3 @@
+-#!/usr/bin/env python
+-#
+ # (C)2011 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
+ #
+ # This program is free software: you can redistribute it and/or modify
+diff --git a/ssmlib/backends/btrfs.py b/ssmlib/backends/btrfs.py
+index acd5446..b0a486f 100644
+--- a/ssmlib/backends/btrfs.py
++++ b/ssmlib/backends/btrfs.py
+@@ -1,5 +1,3 @@
+-#!/usr/bin/env python
+-#
+ # (C)2011 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
+ #
+ # This program is free software: you can redistribute it and/or modify
+diff --git a/ssmlib/backends/crypt.py b/ssmlib/backends/crypt.py
+index 8c1b48c..642b905 100644
+--- a/ssmlib/backends/crypt.py
++++ b/ssmlib/backends/crypt.py
+@@ -1,5 +1,3 @@
+-#!/usr/bin/env python
+-#
+ # (C)2011 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
+ #
+ # This program is free software: you can redistribute it and/or modify
+diff --git a/ssmlib/backends/lvm.py b/ssmlib/backends/lvm.py
+index 4c7c0ad..4022034 100644
+--- a/ssmlib/backends/lvm.py
++++ b/ssmlib/backends/lvm.py
+@@ -1,5 +1,3 @@
+-#!/usr/bin/env python
+-#
+ # (C)2011 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
+ #
+ # This program is free software: you can redistribute it and/or modify
+diff --git a/ssmlib/backends/md.py b/ssmlib/backends/md.py
+index 1e3c6e2..fca2c98 100644
+--- a/ssmlib/backends/md.py
++++ b/ssmlib/backends/md.py
+@@ -1,5 +1,3 @@
+-#!/usr/bin/env python
+-#
+ # (C)2012 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
+ #
+ # This program is free software: you can redistribute it and/or modify
+diff --git a/ssmlib/backends/template.py b/ssmlib/backends/template.py
+index 94f4b40..bf1b6ad 100644
+--- a/ssmlib/backends/template.py
++++ b/ssmlib/backends/template.py
+@@ -1,5 +1,3 @@
+-#!/usr/bin/env python
+-#
+ # (C)2013 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
+ #
+ # This program is free software: you can redistribute it and/or modify
+diff --git a/ssmlib/main.py b/ssmlib/main.py
+index c294aec..5213000 100644
+--- a/ssmlib/main.py
++++ b/ssmlib/main.py
+@@ -1,5 +1,3 @@
+-#!/usr/bin/env python
+-#
+ # (C)2011 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
+ #
+ # This program is free software: you can redistribute it and/or modify
+diff --git a/ssmlib/misc.py b/ssmlib/misc.py
+index 77ddc2d..24b7dd9 100644
+--- a/ssmlib/misc.py
++++ b/ssmlib/misc.py
+@@ -1,5 +1,3 @@
+-#!/usr/bin/env python
+-#
+ # (C)2011 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
+ #
+ # This program is free software: you can redistribute it and/or modify
+diff --git a/ssmlib/problem.py b/ssmlib/problem.py
+index dfa6ec6..f8fb4ce 100644
+--- a/ssmlib/problem.py
++++ b/ssmlib/problem.py
+@@ -1,5 +1,3 @@
+-#!/usr/bin/env python
+-#
+ # (C)2012 Red Hat, Inc., Lukas Czerner <lczerner@redhat.com>
+ #
+ # This program is free software: you can redistribute it and/or modify
+-- 
+1.8.3.1
+
